@@ -1,0 +1,60 @@
+# ---------- Python ----------
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# ---------- Vivado ----------
+# Project file is regenerated locally from vivado/build.tcl, so don't commit it.
+# Only vivado/build.tcl is tracked under vivado/.
+vivado/*.xpr
+vivado/*.jou
+vivado/*.log
+vivado/*.str
+vivado/*.cache/
+vivado/*.hw/
+vivado/*.ip_user_files/
+vivado/*.runs/
+vivado/*.sim/
+vivado/*.gen/
+vivado/*.srcs/sources_1/bd/*/ip/
+vivado/.Xil/
+vivado/NA/
+
+# IP cores: only the .xci definition is tracked; everything Vivado generates
+# from it lives next to it and is regenerated on demand.
+vivado/ip/*/*.dcp
+vivado/ip/*/*.xml
+vivado/ip/*/*.veo
+vivado/ip/*/*.vho
+vivado/ip/*/synth/
+vivado/ip/*/sim/
+vivado/ip/*/hdl/
+vivado/ip/*/doc/
+vivado/ip/*/example_design/
+vivado/ip/*/.Xil/
+
+# Teammate hand-off staging dirs (not part of the repo)
+project_1/
+.vjraaa/
+
+# ---------- Cocotb / iverilog ----------
+tb/sim_build/
+tb/results.xml
+tb/*.vcd
+tb/*.fst
+
+# ---------- Training data (regenerable) ----------
+data/crops_*.npy
+data/raw/
+data/lfw/
+
+# ---------- Editor / OS ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.claude
