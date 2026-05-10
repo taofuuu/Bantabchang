@@ -1,109 +1,154 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // OV7670 Camera Capture Module
-// 
-// Captures pixel data from the OV7670 camera and writes to frame buffer
-// Input: RGB565 from camera (2 bytes per pixel)
-// Output: RGB444 to frame buffer (12 bits per pixel)
-// Resolution: 320x240 pixels
+//
+// Two parallel outputs, both clocked by the camera pclk:
+//
+//   1. Frame-buffer write port (for the VGA preview):
+//        320x240 RGB444 → existing dual-port BRAM, 17-bit linear address
+//
+//   2. Grayscale streaming output (for the NN face detector):
+//        160x120 8-bit luma, 2x downsampled, with the
+//        pixel/pixel_valid/frame_start/line_start handshake from
+//        docs/INTERFACES.md.
+//
+// Both outputs are produced from the same RGB565 byte pair, so we never
+// re-read the camera. The CDC into the system clock domain happens
+// downstream in pixel_stream_cdc.v.
 //////////////////////////////////////////////////////////////////////////////////
 
 module ov7670_capture(
-    input wire pclk,              // Pixel clock from camera (~24MHz)
-    input wire vsync,             // Vertical sync (0 during frame)
-    input wire href,              // Horizontal reference (1 during valid line)
-    input wire [7:0] data_in,     // Pixel data from camera
-    input wire reset,
-    
-    output reg [16:0] frame_addr,  // Address in frame buffer (0-76799)
-    output reg [11:0] frame_pixel, // RGB444 pixel data
-    output reg frame_we            // Write enable
+    input  wire        pclk,           // ~24 MHz pixel clock from camera
+    input  wire        vsync,
+    input  wire        href,
+    input  wire [7:0]  data_in,
+    input  wire        reset,
+
+    // RGB444 frame-buffer write port (camera-side of dual-port BRAM)
+    output reg  [16:0] frame_addr,
+    output reg  [11:0] frame_pixel,
+    output reg         frame_we,
+
+    // Grayscale stream for the detector (in pclk domain).
+    // All four signals are coincident; valid is a 1-pclk-cycle pulse.
+    output reg         stream_valid,
+    output reg         stream_frame_start,
+    output reg         stream_line_start,
+    output reg [7:0]   stream_pixel
 );
 
-    // Frame buffer size: 320 x 240 = 76,800 pixels
-    parameter FRAME_WIDTH = 320;
+    parameter FRAME_WIDTH  = 320;
     parameter FRAME_HEIGHT = 240;
-    parameter MAX_ADDR = FRAME_WIDTH * FRAME_HEIGHT - 1;
-    
-    // States for pixel capture
-    localparam WAIT_FRAME = 0;
-    localparam CAPTURE_BYTE1 = 1;
-    localparam CAPTURE_BYTE2 = 2;
-    
-    reg [1:0] state;
-    reg [7:0] byte1;           // First byte of RGB565
-    reg prev_vsync;
-    reg prev_href;
-    reg frame_active;
-    
-    // Pixel coordinates
-    reg [8:0] pixel_x;         // 0-319
-    reg [7:0] pixel_y;         // 0-239
-    
-    // RGB565 to RGB444 conversion
-    // Input format (RGB565): RRRRR GGG GGG BBBBB (16 bits, 2 bytes)
-    // Output format (RGB444): RRRR GGGG BBBB (12 bits)
-    wire [4:0] rgb565_r;
-    wire [5:0] rgb565_g;
-    wire [4:0] rgb565_b;
-    wire [3:0] rgb444_r;
-    wire [3:0] rgb444_g;
-    wire [3:0] rgb444_b;
-    
-    // Extract RGB565 components
-    assign rgb565_r = {data_in[7:3]};           // First 5 bits of byte1
-    assign rgb565_g = {data_in[2:0], byte1[7:5]};  // Last 3 of byte1 + first 3 of byte2
-    assign rgb565_b = {byte1[4:0]};         // Last 5 bits of byte2
-    
-    // Convert to RGB444 (take most significant bits)
-    assign rgb444_r = rgb565_r[4:1];
-    assign rgb444_g = rgb565_g[5:2];
-    assign rgb444_b = rgb565_b[4:1];
-    
-always @(posedge pclk or posedge reset) begin
-        if (reset) begin
-            state <= WAIT_FRAME;
-            frame_addr <= 0;
-            frame_we <= 0;
-            prev_vsync <= 0;
-        end else begin
-            prev_vsync <= vsync;
-            frame_we <= 0;
+    parameter MAX_ADDR     = FRAME_WIDTH * FRAME_HEIGHT - 1;
 
-            // ตรวจจับ VSYNC เพื่อเริ่ม Frame ใหม่ (สมมติ VSYNC Active High ตามปกติของ OV7670)
-            if (!prev_vsync && vsync) begin 
+    localparam WAIT_FRAME    = 2'd0;
+    localparam CAPTURE_BYTE1 = 2'd1;
+    localparam CAPTURE_BYTE2 = 2'd2;
+
+    reg [1:0] state;
+    reg [7:0] byte1;
+    reg       prev_vsync;
+
+    // Coordinate counters in the native 320x240 grid.
+    reg [8:0] pixel_x;     // 0..319
+    reg [7:0] pixel_y;     // 0..239
+
+    // RGB565 components (byte1 = first/high byte, data_in = second/low byte).
+    wire [4:0] rgb565_r = byte1[7:3];
+    wire [5:0] rgb565_g = {byte1[2:0], data_in[7:5]};
+    wire [4:0] rgb565_b = data_in[4:0];
+
+    // RGB444 for the VGA preview path.
+    wire [3:0] rgb444_r = rgb565_r[4:1];
+    wire [3:0] rgb444_g = rgb565_g[5:2];
+    wire [3:0] rgb444_b = rgb565_b[4:1];
+
+    // Promote 5/6/5-bit channels to 8-bit by replicating MSBs.
+    wire [7:0] r8 = {rgb565_r, rgb565_r[4:2]};
+    wire [7:0] g8 = {rgb565_g, rgb565_g[5:4]};
+    wire [7:0] b8 = {rgb565_b, rgb565_b[4:2]};
+
+    // Luma ~= (R + 2G + B) / 4 — green-weighted, no multipliers needed.
+    wire [9:0] y_sum = r8 + (g8 << 1) + b8;
+    wire [7:0] gray8 = y_sum[9:2];
+
+    // We keep every other column AND every other row -> 160x120 grid.
+    wire keep_pixel = (pixel_x[0] == 1'b0) && (pixel_y[0] == 1'b0);
+
+    always @(posedge pclk or posedge reset) begin
+        if (reset) begin
+            state              <= WAIT_FRAME;
+            frame_addr         <= 0;
+            frame_we           <= 1'b0;
+            prev_vsync         <= 1'b0;
+            pixel_x            <= 9'd0;
+            pixel_y            <= 8'd0;
+            stream_valid       <= 1'b0;
+            stream_frame_start <= 1'b0;
+            stream_line_start  <= 1'b0;
+            stream_pixel       <= 8'd0;
+        end else begin
+            prev_vsync         <= vsync;
+            frame_we           <= 1'b0;
+            stream_valid       <= 1'b0;
+            stream_frame_start <= 1'b0;
+            stream_line_start  <= 1'b0;
+
+            // Rising edge of vsync = start of the blanking interval; reset for
+            // the next active frame (matches the original module's polarity).
+            if (!prev_vsync && vsync) begin
                 frame_addr <= 0;
-                state <= WAIT_FRAME;
-            end 
-            else begin
+                pixel_x    <= 9'd0;
+                pixel_y    <= 8'd0;
+                state      <= WAIT_FRAME;
+            end else begin
                 case (state)
                     WAIT_FRAME: begin
                         if (href) state <= CAPTURE_BYTE1;
                     end
-                    
+
                     CAPTURE_BYTE1: begin
                         if (href) begin
                             byte1 <= data_in;
                             state <= CAPTURE_BYTE2;
                         end else begin
-                            state <= WAIT_FRAME;
+                            // End of line mid-byte: advance to next row.
+                            pixel_x <= 9'd0;
+                            pixel_y <= pixel_y + 8'd1;
+                            state   <= WAIT_FRAME;
                         end
                     end
-                    
+
                     CAPTURE_BYTE2: begin
                         if (href) begin
+                            // Complete RGB pixel: write to VGA frame buffer.
                             frame_pixel <= {rgb444_r, rgb444_g, rgb444_b};
-                            frame_we <= 1;
-                            
-                            // ใช้การบวกหนึ่งแทนการคูณ เพื่อความเสถียร
+                            frame_we    <= 1'b1;
                             if (frame_addr < MAX_ADDR)
-                                frame_addr <= frame_addr + 1;
-                                
+                                frame_addr <= frame_addr + 1'b1;
+
+                            // Emit one downsampled grayscale pixel to the detector.
+                            if (keep_pixel) begin
+                                stream_valid       <= 1'b1;
+                                stream_pixel       <= gray8;
+                                stream_frame_start <= (pixel_x == 9'd0) && (pixel_y == 8'd0);
+                                stream_line_start  <= (pixel_x == 9'd0);
+                            end
+
+                            // Advance horizontal counter; row wrap is handled by
+                            // href falling, so we only saturate here.
+                            if (pixel_x < FRAME_WIDTH - 1)
+                                pixel_x <= pixel_x + 9'd1;
+
                             state <= CAPTURE_BYTE1;
                         end else begin
-                            state <= WAIT_FRAME;
+                            pixel_x <= 9'd0;
+                            pixel_y <= pixel_y + 8'd1;
+                            state   <= WAIT_FRAME;
                         end
                     end
+
+                    default: state <= WAIT_FRAME;
                 endcase
             end
         end

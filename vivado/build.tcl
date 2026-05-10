@@ -13,8 +13,7 @@ set proj_dir   [file dirname [file normalize [info script]]]
 set repo_root  [file dirname $proj_dir]
 set part       "xc7a35tcpg236-1"
 
-# TODO: switch to "system_top" once it exists and integrates the detector
-# subsystem on top of the camera_vga_top pipeline.
+# camera_vga_top now integrates the detector + bounding-box overlay.
 set top_module "camera_vga_top"
 
 # Wipe any existing project so the script is idempotent.
@@ -40,6 +39,16 @@ foreach sub {camera filter detector overlay top} {
 set xdc_files [glob -nocomplain $repo_root/constraints/*.xdc]
 if {[llength $xdc_files] > 0} {
     add_files -fileset constrs_1 -norecurse $xdc_files
+}
+
+# ---------- Add detector weight hex files ----------
+# weight_rom.v uses $readmemh(MEM_FILE, mem). Vivado looks for MEM_FILE in the
+# synthesis run directory, so we register each .hex as a project source and tag
+# it as a Memory Initialization File. The detector_top instantiation in
+# camera_vga_top.v passes the basenames, e.g. "conv1_w.hex".
+foreach hex [glob -nocomplain $repo_root/weights/*.hex] {
+    add_files -norecurse $hex
+    set_property file_type "Memory Initialization Files" [get_files [file tail $hex]]
 }
 
 # ---------- Add Xilinx IP cores ----------
