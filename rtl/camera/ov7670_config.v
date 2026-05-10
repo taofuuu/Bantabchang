@@ -45,11 +45,17 @@ module ov7670_config(
     
     initial begin
         // Basic configuration for QVGA (320x240) RGB444
-        config_regs[0]  = 16'h12_80;  // COM7: Reset all registers
-        config_regs[1]  = 16'h12_04;  // COM7: QVGA + RGB
-        config_regs[2]  = 16'h11_01;  // CLKRC: Use external clock directly
-        config_regs[3]  = 16'h0C_00;  // COM3: Default
-        config_regs[4]  = 16'h3E_00;  // COM14: Default
+        // Skip the COM7 software reset (0x12_80): SCCB sends back-to-back
+        // writes with no 5 ms recovery wait, so the next register write
+        // (the RGB enable) is silently dropped — leaving the camera in
+        // YUV422. Power-on / FPGA reconfig glitches XCLK enough that the
+        // camera comes up in defaults, so we just override what we need.
+        config_regs[0]  = 16'h12_14;  // COM7: QVGA (bit 4) + RGB (bit 2)
+        config_regs[1]  = 16'h12_14;  // COM7: write again — first write
+                                      //   after power-on is sometimes lost.
+        config_regs[2]  = 16'h11_01;  // CLKRC: use external clock directly
+        config_regs[3]  = 16'h0C_04;  // COM3: DCW enable (required for QVGA)
+        config_regs[4]  = 16'h3E_19;  // COM14: DCW + manual scaling, PCLK/2
         config_regs[5]  = 16'h8C_00;  // RGB444
         config_regs[6]  = 16'h04_00;  // COM1: Default
         config_regs[7]  = 16'h40_D0;  // COM15: RGB444, full output range
