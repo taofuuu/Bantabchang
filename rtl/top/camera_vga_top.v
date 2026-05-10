@@ -221,6 +221,9 @@ module camera_vga_top(
     // Use basenames so $readmemh resolves through Vivado's project sources
     // (build.tcl adds rtl/../weights/*.hex as Memory Initialization Files).
     detector_top #(
+        // Default 1000 lets ~every random patch through (63 patches/scan),
+        // so the box latches a noise winner each frame. 10000 is empirical.
+        .THRESHOLD(32'sd10000),
         .CONV1_W_FILE("conv1_w.hex"),
         .CONV1_B_FILE("conv1_b.hex"),
         .CONV2_W_FILE("conv2_w.hex"),

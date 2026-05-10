@@ -53,24 +53,30 @@ module ov7670_capture(
     reg [8:0] pixel_x;     // 0..319
     reg [7:0] pixel_y;     // 0..239
 
-    // RGB565 components (byte1 = first/high byte, data_in = second/low byte).
-    wire [4:0] rgb565_r = byte1[7:3];
-    wire [5:0] rgb565_g = {byte1[2:0], data_in[7:5]};
-    wire [4:0] rgb565_b = data_in[4:0];
+    // YUV422 UYVY decode.
+    //
+    // Several SCCB writes (notably COM7's RGB-enable bit and COM15) appear
+    // to be lost by ov7670_config.v's flaky protocol, so the camera is
+    // stuck in YUV422 mode regardless of what we ask for. The byte stream
+    // per pixel pair is therefore (U, Y0, V, Y1) — i.e. byte1 = chroma
+    // (alternating U/V) and data_in = the luma sample for the current pixel.
+    //
+    // Diagnostic that confirmed this: lens covered → uniform red on the
+    // VGA preview, which is exactly what bytes (0x80, 0x00) decode to when
+    // mis-interpreted as RGB565. Y=0, U=V=0x80 ⇒ 0x80,0x00 ⇒ R=16,G=0,B=0.
+    //
+    // For face detection we only need luma, and Y is the correct luma —
+    // cleaner than the (R+2G+B)/4 approximation we were doing on the
+    // mis-decoded RGB. So we just take Y and display it as grayscale.
+    wire [7:0] luma_y = data_in;
 
-    // RGB444 for the VGA preview path.
-    wire [3:0] rgb444_r = rgb565_r[4:1];
-    wire [3:0] rgb444_g = rgb565_g[5:2];
-    wire [3:0] rgb444_b = rgb565_b[4:1];
+    // RGB444 preview = grayscale (R = G = B = Y[7:4]).
+    wire [3:0] rgb444_r = luma_y[7:4];
+    wire [3:0] rgb444_g = luma_y[7:4];
+    wire [3:0] rgb444_b = luma_y[7:4];
 
-    // Promote 5/6/5-bit channels to 8-bit by replicating MSBs.
-    wire [7:0] r8 = {rgb565_r, rgb565_r[4:2]};
-    wire [7:0] g8 = {rgb565_g, rgb565_g[5:4]};
-    wire [7:0] b8 = {rgb565_b, rgb565_b[4:2]};
-
-    // Luma ~= (R + 2G + B) / 4 — green-weighted, no multipliers needed.
-    wire [9:0] y_sum = r8 + (g8 << 1) + b8;
-    wire [7:0] gray8 = y_sum[9:2];
+    // Detector grayscale stream — Y directly.
+    wire [7:0] gray8 = luma_y;
 
     // We keep every other column AND every other row -> 160x120 grid.
     wire keep_pixel = (pixel_x[0] == 1'b0) && (pixel_y[0] == 1'b0);
