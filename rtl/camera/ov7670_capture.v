@@ -104,7 +104,13 @@ module ov7670_capture(
             end else begin
                 case (state)
                     WAIT_FRAME: begin
-                        if (href) state <= CAPTURE_BYTE1;
+                        // First HREF=1 cycle of a line: data_in is already
+                        // byte-0 of pixel-0. Latch it on this same edge,
+                        // otherwise the whole line is shifted by one byte.
+                        if (href) begin
+                            byte1 <= data_in;
+                            state <= CAPTURE_BYTE2;
+                        end
                     end
 
                     CAPTURE_BYTE1: begin
