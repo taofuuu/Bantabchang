@@ -1,27 +1,29 @@
-"""Build a face / no-face dataset of 24x24 grayscale uint8 patches.
+"""Synthesize a bounding-box dataset from existing 24x24 face/background crops.
 
-Outputs:
-  data/crops_pos.npy  (N_pos, 24, 24) uint8
-  data/crops_neg.npy  (N_neg, 24, 24) uint8
+The original dataset is just face/no-face crops (data/crops_pos.npy and
+data/crops_neg.npy). For bounding-box regression we need (24x24 patch + bbox
+label) pairs, which we synthesize here by pasting a resized face into a
+background patch at a random position.
 
-Sources supported (any combination, mix and match):
-  --pos-dir DIR     directory of face images (any size; will be resized to 24x24)
-  --neg-dir DIR     directory of non-face images (random 24x24 crops sampled per image)
-  --olivetti        also include sklearn's Olivetti faces (400 frontal faces, free)
-  --synth-neg N     also generate N synthetic negatives (random noise + edges)
+Output:
+  data/bbox_dataset.npz
+    patches  (N, 24, 24) uint8
+    confs    (N,) float32  - 1 for positive, 0 for negative
+    bboxes   (N, 4) float32 - (x0, y0, w, h) in patch pixel coords [0, 24].
+                              x0, y0 = top-left corner of the face inside the
+                              patch; w, h = face width/height. Zeros for
+                              negatives (ignored in loss).
 
-Augmentation is applied at training time (in train.py), NOT here, so this
-script just produces clean canonical crops.
+Positive samples: each face crop is reused multiple times at different
+target sizes (POS_SIZES) and pasted positions, so a single face becomes
+several training examples covering varied scales.
 
 Usage:
-  python build_dataset.py --olivetti --synth-neg 4000
-  python build_dataset.py --pos-dir faces/ --neg-dir backgrounds/
+  python build_dataset.py
 """
 from __future__ import annotations
 
 import argparse
-import os
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -29,148 +31,97 @@ from PIL import Image
 
 
 PATCH_SIZE = 24
+
+# Face target sizes in patch pixels. Each face crop produces this many
+# positive variants. 24 = face fills the whole patch; 10 = tiny face.
+POS_SIZES = (10, 12, 14, 16, 18, 20, 22, 24)
+
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR.parent / "data"
+DATA_DIR   = SCRIPT_DIR.parent / "data"
 
 
-def load_image_gray(path: Path) -> np.ndarray | None:
-    try:
-        img = Image.open(path).convert("L")
-        return np.array(img, dtype=np.uint8)
-    except Exception:
-        return None
+def resize_face(face_u8: np.ndarray, target: int) -> np.ndarray:
+    img = Image.fromarray(face_u8)
+    img = img.resize((target, target), Image.BILINEAR)
+    return np.array(img, dtype=np.uint8)
 
 
-def crops_from_face_dir(pos_dir: Path) -> list[np.ndarray]:
-    crops: list[np.ndarray] = []
-    exts = {".png", ".jpg", ".jpeg", ".bmp", ".pgm"}
-    for path in sorted(pos_dir.rglob("*")):
-        if path.suffix.lower() not in exts:
-            continue
-        img = load_image_gray(path)
-        if img is None:
-            continue
-        # whole image is assumed to be a face crop already; resize to PATCH_SIZE
-        resized = np.array(
-            Image.fromarray(img).resize((PATCH_SIZE, PATCH_SIZE), Image.BILINEAR),
-            dtype=np.uint8,
-        )
-        crops.append(resized)
-    return crops
-
-
-def random_crops_from_image(
-    img: np.ndarray, n: int, rng: np.random.Generator
-) -> list[np.ndarray]:
-    h, w = img.shape
-    if h < PATCH_SIZE or w < PATCH_SIZE:
-        return []
-    out = []
-    for _ in range(n):
-        y = rng.integers(0, h - PATCH_SIZE + 1)
-        x = rng.integers(0, w - PATCH_SIZE + 1)
-        out.append(img[y : y + PATCH_SIZE, x : x + PATCH_SIZE].copy())
+def paste_with_alpha(
+    bg: np.ndarray, face: np.ndarray, x0: int, y0: int, blend: float
+) -> np.ndarray:
+    """Drop `face` into `bg` at (x0, y0) with simple alpha blending at the
+    edges so the paste seam isn't a sharp box the CNN can learn shortcuts on."""
+    h, w = face.shape
+    out  = bg.copy()
+    region = out[y0:y0 + h, x0:x0 + w].astype(np.float32)
+    f      = face.astype(np.float32)
+    out[y0:y0 + h, x0:x0 + w] = (blend * f + (1.0 - blend) * region).clip(0, 255).astype(np.uint8)
     return out
 
 
-def crops_from_neg_dir(
-    neg_dir: Path, per_image: int, rng: np.random.Generator
-) -> list[np.ndarray]:
-    crops: list[np.ndarray] = []
-    exts = {".png", ".jpg", ".jpeg", ".bmp", ".pgm"}
-    for path in sorted(neg_dir.rglob("*")):
-        if path.suffix.lower() not in exts:
-            continue
-        img = load_image_gray(path)
-        if img is None:
-            continue
-        crops.extend(random_crops_from_image(img, per_image, rng))
-    return crops
-
-
-def crops_from_olivetti() -> list[np.ndarray]:
-    # sklearn ships Olivetti at 64x64; 400 grayscale frontal faces.
-    from sklearn.datasets import fetch_olivetti_faces
-
-    ds = fetch_olivetti_faces()
-    out = []
-    for face in ds.images:
-        face_u8 = (face * 255.0).clip(0, 255).astype(np.uint8)
-        resized = np.array(
-            Image.fromarray(face_u8).resize((PATCH_SIZE, PATCH_SIZE), Image.BILINEAR),
-            dtype=np.uint8,
-        )
-        out.append(resized)
-    return out
-
-
-def synth_negatives(n: int, rng: np.random.Generator) -> list[np.ndarray]:
-    # Mix of pure noise, lines, and gradients — gives the classifier easy negatives
-    # and trains it to ignore non-face textures.
-    out = []
-    for _ in range(n):
-        kind = rng.integers(0, 3)
-        if kind == 0:
-            patch = rng.integers(0, 256, (PATCH_SIZE, PATCH_SIZE), dtype=np.uint8)
-        elif kind == 1:
-            base = rng.integers(0, 256)
-            patch = np.full((PATCH_SIZE, PATCH_SIZE), base, dtype=np.uint8)
-            for _ in range(rng.integers(1, 5)):
-                y = rng.integers(0, PATCH_SIZE)
-                patch[y, :] = rng.integers(0, 256)
-        else:
-            v = np.linspace(
-                rng.integers(0, 256), rng.integers(0, 256), PATCH_SIZE, dtype=np.float32
-            )
-            if rng.integers(0, 2) == 0:
-                patch = np.tile(v, (PATCH_SIZE, 1)).astype(np.uint8)
-            else:
-                patch = np.tile(v[:, None], (1, PATCH_SIZE)).astype(np.uint8)
-        out.append(patch)
-    return out
+def build_positive_samples(
+    faces: np.ndarray, backgrounds: np.ndarray, rng: np.random.Generator
+) -> tuple[list[np.ndarray], list[tuple[float, float, float, float]]]:
+    patches: list[np.ndarray] = []
+    bboxes:  list[tuple[float, float, float, float]] = []
+    n_bg = len(backgrounds)
+    for face in faces:
+        for size in POS_SIZES:
+            bg_idx = int(rng.integers(0, n_bg))
+            bg = backgrounds[bg_idx]
+            face_resized = resize_face(face, size)
+            max_pos = PATCH_SIZE - size
+            x0 = int(rng.integers(0, max_pos + 1)) if max_pos > 0 else 0
+            y0 = int(rng.integers(0, max_pos + 1)) if max_pos > 0 else 0
+            blend = float(rng.uniform(0.85, 1.0))
+            patch = paste_with_alpha(bg, face_resized, x0, y0, blend)
+            patches.append(patch)
+            bboxes.append((float(x0), float(y0), float(size), float(size)))
+    return patches, bboxes
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--pos-dir", type=Path)
-    p.add_argument("--neg-dir", type=Path)
-    p.add_argument("--neg-per-image", type=int, default=8)
-    p.add_argument("--olivetti", action="store_true")
-    p.add_argument("--synth-neg", type=int, default=0)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out-dir", type=Path, default=DATA_DIR)
+    p.add_argument("--pos-in",  type=Path, default=DATA_DIR / "crops_pos.npy")
+    p.add_argument("--neg-in",  type=Path, default=DATA_DIR / "crops_neg.npy")
+    p.add_argument("--out",     type=Path, default=DATA_DIR / "bbox_dataset.npz")
+    p.add_argument("--seed",    type=int,  default=0)
     args = p.parse_args()
 
     rng = np.random.default_rng(args.seed)
 
-    pos: list[np.ndarray] = []
-    neg: list[np.ndarray] = []
+    faces       = np.load(args.pos_in)
+    backgrounds = np.load(args.neg_in)
+    assert faces.shape[1:]       == (PATCH_SIZE, PATCH_SIZE), faces.shape
+    assert backgrounds.shape[1:] == (PATCH_SIZE, PATCH_SIZE), backgrounds.shape
+    print(f"loaded {len(faces)} face crops, {len(backgrounds)} background crops")
 
-    if args.pos_dir:
-        pos.extend(crops_from_face_dir(args.pos_dir))
-    if args.olivetti:
-        pos.extend(crops_from_olivetti())
-    if args.neg_dir:
-        neg.extend(crops_from_neg_dir(args.neg_dir, args.neg_per_image, rng))
-    if args.synth_neg > 0:
-        neg.extend(synth_negatives(args.synth_neg, rng))
+    pos_patches, pos_bboxes = build_positive_samples(faces, backgrounds, rng)
+    print(f"synthesised {len(pos_patches)} positive (face, bbox) samples"
+          f"  ({len(faces)} faces x {len(POS_SIZES)} sizes)")
 
-    if not pos:
-        print("ERROR: no positive samples produced — pass --pos-dir or --olivetti", file=sys.stderr)
-        return 1
-    if not neg:
-        print("ERROR: no negative samples produced — pass --neg-dir or --synth-neg N", file=sys.stderr)
-        return 1
+    # Negatives: use background crops directly. We optionally add more by mixing
+    # backgrounds to keep classes balanced.
+    n_neg_target = len(pos_patches)
+    if len(backgrounds) < n_neg_target:
+        idx = rng.choice(len(backgrounds), n_neg_target, replace=True)
+        neg_patches = backgrounds[idx]
+    else:
+        idx = rng.choice(len(backgrounds), n_neg_target, replace=False)
+        neg_patches = backgrounds[idx]
 
-    pos_arr = np.stack(pos).astype(np.uint8)
-    neg_arr = np.stack(neg).astype(np.uint8)
+    patches = np.concatenate([np.stack(pos_patches).astype(np.uint8),
+                              neg_patches.astype(np.uint8)], axis=0)
+    confs   = np.concatenate([np.ones(len(pos_patches),  dtype=np.float32),
+                              np.zeros(len(neg_patches), dtype=np.float32)], axis=0)
+    bboxes  = np.concatenate([np.array(pos_bboxes, dtype=np.float32),
+                              np.zeros((len(neg_patches), 4), dtype=np.float32)], axis=0)
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    np.save(args.out_dir / "crops_pos.npy", pos_arr)
-    np.save(args.out_dir / "crops_neg.npy", neg_arr)
-
-    print(f"saved {pos_arr.shape} positives -> {args.out_dir / 'crops_pos.npy'}")
-    print(f"saved {neg_arr.shape} negatives -> {args.out_dir / 'crops_neg.npy'}")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(args.out, patches=patches, confs=confs, bboxes=bboxes)
+    print(f"saved bbox dataset -> {args.out}")
+    print(f"  shapes: patches={patches.shape}  confs={confs.shape}  bboxes={bboxes.shape}")
+    print(f"  positives: {int(confs.sum())}   negatives: {len(confs) - int(confs.sum())}")
     return 0
 
 

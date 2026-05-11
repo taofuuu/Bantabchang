@@ -22,7 +22,13 @@
 //
 // Address layout (matches scripts/dump_golden.py):
 //   input act_buffer addr = ky * 24 + kx
-//   frame_buffer addr     = (patch_y + ky) * 160 + (patch_x + kx)
+//   frame_buffer addr     = (patch_y + ky*DILATE) * 160 + (patch_x + kx*DILATE)
+//
+// DILATE: sub-sample stride within the patch. DILATE=1 reads contiguous
+// pixels (a 24x24 region). DILATE=2 reads every other pixel, so the CNN
+// sees a 24x24 patch that covers a 48x48 region of the camera frame -- a
+// "digital zoom out" that matches the CNN's training scale when the user
+// is too close to the camera.
 
 `default_nettype none
 
@@ -33,8 +39,9 @@ module patch_extractor #(
     input  wire        clk,
     input  wire        rst,           // synchronous, active high
     input  wire        start,         // 1-cycle pulse to begin
-    input  wire [7:0]  patch_x,       // 0 .. (FRAME_W - PATCH)
-    input  wire [6:0]  patch_y,       // 0 .. (FRAME_H - PATCH)
+    input  wire [7:0]  patch_x,       // 0 .. (FRAME_W - PATCH*dilate_in)
+    input  wire [6:0]  patch_y,       // 0 .. (FRAME_H - PATCH*dilate_in)
+    input  wire [2:0]  dilate_in,     // 1..7; runtime sub-sample stride
     output reg         done,          // 1-cycle pulse when finished
 
     // frame_buffer read port (1-cycle latency)
@@ -64,9 +71,10 @@ module patch_extractor #(
     reg [4:0] kx_d;
     reg       valid_d;  // we issued a read on the previous cycle
 
-    // latched patch corner so the caller can deassert patch_x/patch_y after start
+    // latched patch corner + dilate so the caller can deassert these after start
     reg [7:0] saved_px;
     reg [6:0] saved_py;
+    reg [2:0] saved_dilate;
 
     wire kx_last   = (kx == PATCH - 1);
     wire ky_last   = (ky == PATCH - 1);
@@ -91,14 +99,15 @@ module patch_extractor #(
     // -------------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
-            state    <= S_IDLE;
-            ky       <= 0; kx <= 0;
-            ky_d     <= 0; kx_d <= 0;
-            valid_d  <= 1'b0;
-            done     <= 1'b0;
-            ab_we    <= 1'b0;
-            saved_px <= 0;
-            saved_py <= 0;
+            state        <= S_IDLE;
+            ky           <= 0; kx <= 0;
+            ky_d         <= 0; kx_d <= 0;
+            valid_d      <= 1'b0;
+            done         <= 1'b0;
+            ab_we        <= 1'b0;
+            saved_px     <= 0;
+            saved_py     <= 0;
+            saved_dilate <= 3'd1;
         end else begin
             state <= next;
             done  <= (next == S_FIN);
@@ -107,11 +116,12 @@ module patch_extractor #(
             case (state)
                 S_IDLE: begin
                     if (start) begin
-                        saved_px <= patch_x;
-                        saved_py <= patch_y;
-                        ky       <= 0;
-                        kx       <= 0;
-                        valid_d  <= 1'b0;
+                        saved_px     <= patch_x;
+                        saved_py     <= patch_y;
+                        saved_dilate <= (dilate_in == 3'd0) ? 3'd1 : dilate_in;
+                        ky           <= 0;
+                        kx           <= 0;
+                        valid_d      <= 1'b0;
                     end
                 end
 
@@ -153,10 +163,12 @@ module patch_extractor #(
 
     // -------------------------------------------------------------------
     // address driver — combinational, drives the frame_buffer read addr
-    // for the read we are issuing this cycle.
+    // for the read we are issuing this cycle. saved_dilate makes the patch
+    // cover a PATCH*saved_dilate region in the 160x120 frame.
     // -------------------------------------------------------------------
     always @* begin
-        fb_r_addr = (saved_py + ky) * FRAME_W + (saved_px + kx);
+        fb_r_addr = (saved_py + ky*saved_dilate) * FRAME_W
+                  + (saved_px + kx*saved_dilate);
     end
 
 endmodule

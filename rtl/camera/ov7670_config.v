@@ -1,204 +1,192 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// OV7670 SCCB Configuration Module
-// 
-// This module configures the OV7670 camera via SCCB (similar to I2C)
-// Sends initialization register values to set up QVGA (320x240) RGB444 mode
+// OV7670 SCCB Configuration (RGB565 / VGA 640x480 boot sequence)
+//
+// Eight register writes are enough to bring the camera up in RGB565 VGA mode:
+// soft-reset, prescaler on, PLL stabilize, COM7 = RGB, RGB444 off, COM15 with
+// the full-range RGB565 bit, TSLB, and the "magic" 0xB0 register that the
+// OmniVision app-note flips before reliable RGB output.
+//
+// SCL is built as a 4-phase waveform (low/low/high/high) so SDA can change
+// only while SCL is low - the I2C rule the camera enforces. After the soft
+// reset we hold off ~1 ms before sending the rest. This driver is open-loop
+// (no ACK read-back); the simpler protocol is what consistently leaves the
+// camera in a known state.
+//
+// Top hooks: config_done goes high once all eight writes are out; sccb_busy
+// reflects an active transaction; sccb_nak_seen is wired low because we do
+// not sample ACK in this version.
 //////////////////////////////////////////////////////////////////////////////////
 
 module ov7670_config(
-    input wire clk,              // System clock (100 MHz)
-    input wire reset,
-    output reg sioc,             // SCCB clock (max 400 kHz)
-    inout wire siod,             // SCCB data (bidirectional)
-    output reg config_done       // High when configuration complete
+    input  wire clk,            // 100 MHz system clock
+    input  wire reset,          // async, active-high
+    output reg  sioc,           // SCCB clock line
+    inout  wire siod,           // SCCB data line (open-drain)
+    output wire config_done,
+    output wire sccb_busy,
+    output wire sccb_nak_seen
 );
 
-    // SCCB timing parameters (for 100MHz clock)
-    parameter CLOCK_DIV = 250;   // Divide 100MHz to ~400kHz
-    
-    // Camera I2C address
-    parameter CAM_ADDR = 8'h42;  // OV7670 write address (0x42)
-    
-    // State machine states
-    localparam IDLE        = 0;
-    localparam START       = 1;
-    localparam ADDR_WRITE  = 2;
-    localparam REG_WRITE   = 3;
-    localparam DATA_WRITE  = 4;
-    localparam STOP        = 5;
-    localparam NEXT_REG    = 6;
-    localparam DONE        = 7;
-    
-    reg [3:0] state;
-    reg [7:0] clk_count;
-    reg [7:0] bit_count;
-    reg [7:0] reg_index;
-    reg sda_out;
-    reg sda_oe;  // Output enable for bidirectional pin
-    
-    assign siod = sda_oe ? sda_out : 1'bz;
-    
-    // Configuration registers (register address, data value)
-    // These settings configure the camera for QVGA RGB444 output
-    reg [15:0] config_regs [0:35];
-    
-    initial begin
-        // Basic configuration for QVGA (320x240) RGB444
-        // Skip the COM7 software reset (0x12_80): SCCB sends back-to-back
-        // writes with no 5 ms recovery wait, so the next register write
-        // (the RGB enable) is silently dropped — leaving the camera in
-        // YUV422. Power-on / FPGA reconfig glitches XCLK enough that the
-        // camera comes up in defaults, so we just override what we need.
-        config_regs[0]  = 16'h12_14;  // COM7: QVGA (bit 4) + RGB (bit 2)
-        config_regs[1]  = 16'h12_14;  // COM7: write again — first write
-                                      //   after power-on is sometimes lost.
-        config_regs[2]  = 16'h11_01;  // CLKRC: use external clock directly
-        config_regs[3]  = 16'h0C_04;  // COM3: DCW enable (required for QVGA)
-        config_regs[4]  = 16'h3E_19;  // COM14: DCW + manual scaling, PCLK/2
-        config_regs[5]  = 16'h8C_00;  // RGB444
-        config_regs[6]  = 16'h04_00;  // COM1: Default
-        config_regs[7]  = 16'h40_D0;  // COM15: RGB444, full output range
-        config_regs[8]  = 16'h3A_04;  // TSLB
-        config_regs[9]  = 16'h14_18;  // COM9: AGC setting
-        config_regs[10] = 16'h4F_B3;  // MTX1
-        config_regs[11] = 16'h50_B3;  // MTX2
-        config_regs[12] = 16'h51_00;  // MTX3
-        config_regs[13] = 16'h52_3D;  // MTX4
-        config_regs[14] = 16'h53_A7;  // MTX5
-        config_regs[15] = 16'h54_E4;  // MTX6
-        config_regs[16] = 16'h58_9E;  // MTXS
-        config_regs[17] = 16'h3D_C0;  // COM13
-        config_regs[18] = 16'h17_14;  // HSTART
-        config_regs[19] = 16'h18_02;  // HSTOP
-        config_regs[20] = 16'h32_80;  // HREF
-        config_regs[21] = 16'h19_03;  // VSTART
-        config_regs[22] = 16'h1A_7B;  // VSTOP
-        config_regs[23] = 16'h03_0A;  // VREF
-        config_regs[24] = 16'h0E_61;  // COM5
-        config_regs[25] = 16'h0F_4B;  // COM6
-        config_regs[26] = 16'h16_02;  // Reserved
-        config_regs[27] = 16'h1E_07;  // MVFP: Mirror/VFlip
-        config_regs[28] = 16'h21_02;  // ADCCTR1
-        config_regs[29] = 16'h22_91;  // ADCCTR2
-        config_regs[30] = 16'h29_07;  // RSVD
-        config_regs[31] = 16'h33_0B;  // CHLF
-        // --- ปรับปรุงความคมชัด (Edge Enhancement) ---
-        config_regs[32] = 16'h3F_04;  // EDGE: ปรับ Threshold ของขอบภาพ
-        config_regs[33] = 16'h75_E1;  // EDG1: เปิดใช้งาน Edge Enhancement และจูนค่า Gain
-        config_regs[34] = 16'h76_E1;  // COM16: เปิดใช้งาน Edge Enhancement ในระดับระบบ
+    // ---------------------------------------------------------------------
+    // Phase tick: divide 100 MHz so each SCCB phase lasts ~2.5 us
+    //   -> SCL period ~10 us  ->  ~100 kHz, comfortably inside SCCB spec.
+    // ---------------------------------------------------------------------
+    parameter [8:0] PHASE_TICKS = 9'd250;  // 100 MHz / 250 = 400 kHz tick
 
-        // --- ปรับความสดของสี (Saturation) และ Contrast ---
-        config_regs[35] = 16'h41_08;  // COM10: ช่วยเรื่อง Noise และความคมของสัญญาณ
-        // หากต้องการเพิ่มความเข้มของสี (Saturation) ให้ลองปรับที่ Register 0x67 ถึง 0x69
-    end
-    
-    reg [15:0] current_reg;
-    wire [7:0] reg_addr;
-    wire [7:0] reg_data;
-    
-    assign reg_addr = current_reg[15:8];
-    assign reg_data = current_reg[7:0];
-    
-    // SCCB clock generation
+    reg [8:0] tick_div;
+    reg       phase_tick;
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
-            clk_count <= 0;
-            sioc <= 1;
+            tick_div   <= 9'd0;
+            phase_tick <= 1'b0;
+        end else if (tick_div == PHASE_TICKS - 1'b1) begin
+            tick_div   <= 9'd0;
+            phase_tick <= 1'b1;
         end else begin
-            if (clk_count >= CLOCK_DIV - 1) begin
-                clk_count <= 0;
-                sioc <= ~sioc;
-            end else begin
-                clk_count <= clk_count + 1;
-            end
+            tick_div   <= tick_div + 1'b1;
+            phase_tick <= 1'b0;
         end
     end
-    
-    wire sccb_clk_edge = (clk_count == 0);
-    
-    // SCCB state machine
+
+    // ---------------------------------------------------------------------
+    // Register table - 8 entries, {sub-address, data}
+    // ---------------------------------------------------------------------
+    localparam integer NUM_CMDS  = 8;
+    localparam [7:0]   CAM_WADDR = 8'h42;   // OV7670 slave write address
+
+    reg  [7:0]  cmd_index;
+    reg  [15:0] cmd_word;
+
+    always @(*) begin
+        case (cmd_index)
+            8'd0: cmd_word = 16'h12_80;  // COM7  - software reset
+            8'd1: cmd_word = 16'h11_01;  // CLKRC - enable internal prescaler
+            8'd2: cmd_word = 16'h6B_4A;  // DBLV  - PLL stabilization
+            8'd3: cmd_word = 16'h12_04;  // COM7  - select RGB output
+            8'd4: cmd_word = 16'h8C_00;  // RGB444 disable -> use RGB565
+            8'd5: cmd_word = 16'h40_D0;  // COM15 - RGB565, full output range
+            8'd6: cmd_word = 16'h3A_04;  // TSLB
+            8'd7: cmd_word = 16'hB0_84;  // (reserved register required for clean RGB)
+            default: cmd_word = 16'h0000;
+        endcase
+    end
+
+    // ---------------------------------------------------------------------
+    // 4-phase SCCB FSM
+    //   P0/P1 : SCL low  (P1 = drive SDA)
+    //   P2/P3 : SCL high (SDA stable for slave)
+    //
+    // The 24-bit shift {slave, sub, data} is emitted MSB-first; after every
+    // 8 data bits an extra phase pair generates the don't-care/ACK bit during
+    // which we tristate SDA (no ACK sampling - open-loop).
+    // ---------------------------------------------------------------------
+    localparam [3:0] ST_IDLE       = 4'd0;
+    localparam [3:0] ST_START      = 4'd1;
+    localparam [3:0] ST_SCL_LO_A   = 4'd2;
+    localparam [3:0] ST_DRIVE_DATA = 4'd3;
+    localparam [3:0] ST_SCL_HI_A   = 4'd4;
+    localparam [3:0] ST_HOLD_A     = 4'd5;
+    localparam [3:0] ST_SCL_LO_B   = 4'd6;
+    localparam [3:0] ST_RELEASE    = 4'd7;
+    localparam [3:0] ST_SCL_HI_B   = 4'd8;
+    localparam [3:0] ST_HOLD_B     = 4'd9;
+    localparam [3:0] ST_STOP_LO    = 4'd10;
+    localparam [3:0] ST_STOP_DRV   = 4'd11;
+    localparam [3:0] ST_STOP_HI    = 4'd12;
+    localparam [3:0] ST_NEXT_LO    = 4'd13;
+    localparam [3:0] ST_NEXT_DRV   = 4'd14;
+    localparam [3:0] ST_FINISH     = 4'd15;
+
+    reg [3:0]  fsm_state;
+    reg [5:0]  bit_idx;            // 23..0 across the 3-byte burst
+    reg [23:0] tx_shift;
+    reg        sda_q;
+    reg        sda_oe;
+    reg [10:0] post_reset_cnt;     // ~1 ms idle after soft reset
+
+    // SCCB / open-drain: pull SDA low when we want a 0, otherwise Hi-Z.
+    assign siod = (sda_oe && sda_q == 1'b0) ? 1'b0 : 1'bz;
+
+    assign sccb_busy     = (fsm_state != ST_IDLE);
+    assign sccb_nak_seen = 1'b0;
+    assign config_done   = (cmd_index >= NUM_CMDS) && (fsm_state == ST_IDLE);
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
-            state <= IDLE;
-            reg_index <= 0;
-            config_done <= 0;
-            sda_out <= 1;
-            sda_oe <= 0;
-            bit_count <= 0;
-        end else if (sccb_clk_edge && sioc) begin  // Execute on SIOC high
-            case (state)
-                IDLE: begin
-                    if (reg_index < 32) begin
-                        current_reg <= config_regs[reg_index];
-                        state <= START;
-                        sda_oe <= 1;
+            fsm_state      <= ST_IDLE;
+            bit_idx        <= 6'd0;
+            tx_shift       <= 24'd0;
+            cmd_index      <= 8'd0;
+            sioc           <= 1'b1;
+            sda_q          <= 1'b1;
+            sda_oe         <= 1'b1;
+            post_reset_cnt <= 11'd0;
+        end else if (phase_tick) begin
+            case (fsm_state)
+                // ---------------------------------------------------------
+                ST_IDLE: begin
+                    if (cmd_index < NUM_CMDS) begin
+                        // Wait ~1 ms after the soft reset command before going on
+                        if (cmd_index == 8'd1 && post_reset_cnt < 11'd400) begin
+                            post_reset_cnt <= post_reset_cnt + 1'b1;
+                        end else begin
+                            tx_shift  <= {CAM_WADDR, cmd_word[15:8], cmd_word[7:0]};
+                            sda_oe    <= 1'b1;
+                            sioc      <= 1'b1;
+                            sda_q     <= 1'b1;
+                            fsm_state <= ST_START;
+                        end
+                    end
+                end
+
+                // START: SDA falls while SCL is high
+                ST_START: begin
+                    sda_q     <= 1'b0;
+                    bit_idx   <= 6'd23;
+                    fsm_state <= ST_SCL_LO_A;
+                end
+
+                // --- Send-bit phases ---
+                ST_SCL_LO_A:   begin sioc <= 1'b0;                  fsm_state <= ST_DRIVE_DATA; end
+                ST_DRIVE_DATA: begin sda_q <= tx_shift[bit_idx];    fsm_state <= ST_SCL_HI_A;   end
+                ST_SCL_HI_A:   begin sioc <= 1'b1;                  fsm_state <= ST_HOLD_A;     end
+                ST_HOLD_A: begin
+                    if (bit_idx == 6'd16 || bit_idx == 6'd8 || bit_idx == 6'd0) begin
+                        fsm_state <= ST_SCL_LO_B;        // last data bit of a byte -> ACK phase
                     end else begin
-                        state <= DONE;
+                        bit_idx   <= bit_idx - 1'b1;
+                        fsm_state <= ST_SCL_LO_A;
                     end
                 end
-                
-                START: begin
-                    sda_out <= 0;  // START condition: SDA goes low while SCL is high
-                    bit_count <= 8;
-                    state <= ADDR_WRITE;
-                end
-                
-                ADDR_WRITE: begin
-                    if (bit_count > 0) begin
-                        sda_out <= CAM_ADDR[bit_count-1];
-                        bit_count <= bit_count - 1;
-                    end else begin
-                        sda_oe <= 0;  // Release for ACK
-                        bit_count <= 8;
-                        state <= REG_WRITE;
+
+                // --- Don't-care / ACK phases (SDA tristated) ---
+                ST_SCL_LO_B: begin sioc   <= 1'b0; fsm_state <= ST_RELEASE;   end
+                ST_RELEASE:  begin sda_oe <= 1'b0; fsm_state <= ST_SCL_HI_B;  end
+                ST_SCL_HI_B: begin sioc   <= 1'b1; fsm_state <= ST_HOLD_B;    end
+                ST_HOLD_B: begin
+                    if (bit_idx == 6'd0)
+                        fsm_state <= ST_STOP_LO;          // burst complete, STOP next
+                    else begin
+                        bit_idx   <= bit_idx - 1'b1;
+                        fsm_state <= ST_NEXT_LO;          // continue to next byte
                     end
                 end
-                
-                REG_WRITE: begin
-                    if (bit_count == 8) begin
-                        sda_oe <= 1;  // Take back control after ACK
-                    end
-                    if (bit_count > 0) begin
-                        sda_out <= reg_addr[bit_count-1];
-                        bit_count <= bit_count - 1;
-                    end else begin
-                        sda_oe <= 0;  // Release for ACK
-                        bit_count <= 8;
-                        state <= DATA_WRITE;
-                    end
+                ST_NEXT_LO:  begin sioc   <= 1'b0; fsm_state <= ST_NEXT_DRV;  end
+                ST_NEXT_DRV: begin sda_oe <= 1'b1; fsm_state <= ST_DRIVE_DATA;end
+
+                // --- STOP: SDA rises while SCL is high ---
+                ST_STOP_LO:  begin sioc   <= 1'b0;             fsm_state <= ST_STOP_DRV; end
+                ST_STOP_DRV: begin sda_oe <= 1'b1; sda_q <= 1'b0; fsm_state <= ST_STOP_HI;  end
+                ST_STOP_HI:  begin sioc   <= 1'b1;             fsm_state <= ST_FINISH;   end
+                ST_FINISH: begin
+                    sda_q     <= 1'b1;
+                    cmd_index <= cmd_index + 1'b1;
+                    fsm_state <= ST_IDLE;
                 end
-                
-                DATA_WRITE: begin
-                    if (bit_count == 8) begin
-                        sda_oe <= 1;  // Take back control after ACK
-                    end
-                    if (bit_count > 0) begin
-                        sda_out <= reg_data[bit_count-1];
-                        bit_count <= bit_count - 1;
-                    end else begin
-                        sda_oe <= 1;
-                        state <= STOP;
-                    end
-                end
-                
-                STOP: begin
-                    sda_out <= 0;
-                    state <= NEXT_REG;
-                end
-                
-                NEXT_REG: begin
-                    sda_out <= 1;  // STOP condition: SDA goes high while SCL is high
-                    reg_index <= reg_index + 1;
-                    state <= IDLE;
-                end
-                
-                DONE: begin
-                    config_done <= 1;
-                    sda_oe <= 0;
-                end
-                
-                default: state <= IDLE;
+
+                default: fsm_state <= ST_IDLE;
             endcase
         end
     end

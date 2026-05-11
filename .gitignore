@@ -23,6 +23,10 @@ vivado/.Xil/
 vivado/NA/
 *.jou
 *.log
+*.str
+.Xil/
+webtalk*.backup.jou
+webtalk*.backup.log
 dfx_runtime.txt
 
 # IP cores: only the .xci definition is tracked; everything Vivado generates
@@ -62,3 +66,6 @@ data/lfw/
 Thumbs.db
 .claude
 *.jpg
+*.png
+
+/WorkingProject

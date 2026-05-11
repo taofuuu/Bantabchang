@@ -1,18 +1,18 @@
-// conv3 bias, shape=(16,)
+// conv3 bias,  shape=(16,)
 // 16 int32 values, two's complement, one per line
-0000003e
-ffffff6f
-fffffda9
-ffffff0c
-000001f0
-fffffd84
-fffffe13
-fffffd13
-0000026b
-ffffff07
-ffffff95
-00000268
-00000124
-00000108
-0000002e
-fffffd59
+00000031
+ffffffee
+00000006
+ffffffe0
+00000008
+ffffff6e
+ffffffbd
+ffffff9c
+0000012b
+00000010
+ffffffbb
+00000096
+000000a3
+0000004f
+fffffffd
+ffffffab
