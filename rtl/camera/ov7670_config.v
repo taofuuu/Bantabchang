@@ -53,7 +53,7 @@ module ov7670_config(
     // ---------------------------------------------------------------------
     // Register table - 8 entries, {sub-address, data}
     // ---------------------------------------------------------------------
-    localparam integer NUM_CMDS  = 12;
+    localparam integer NUM_CMDS  = 36;
     localparam [7:0]   CAM_WADDR = 8'h42;   // OV7670 slave write address
 
     reg  [7:0]  cmd_index;
@@ -73,6 +73,36 @@ module ov7670_config(
             8'd9  : cmd_word = 16'h01_C0; // blue gain
             8'd10  : cmd_word = 16'h02_F0; // red gain
             8'd11 : cmd_word = 16'h13_E5;
+            
+            // --- Mild saturation boost ---
+            8'd12 : cmd_word = 16'h4F_75;
+            8'd13 : cmd_word = 16'h50_75;
+            8'd14 : cmd_word = 16'h51_00;
+            8'd15 : cmd_word = 16'h52_22;
+            8'd16 : cmd_word = 16'h53_5E;
+            8'd17 : cmd_word = 16'h54_80;
+            8'd18 : cmd_word = 16'h58_9E;
+            
+            // --- Gamma / contrast ---
+            8'd19 : cmd_word = 16'h7A_20;
+            8'd20 : cmd_word = 16'h7B_10;
+            8'd21 : cmd_word = 16'h7C_1E;
+            8'd22 : cmd_word = 16'h7D_35;
+            8'd23 : cmd_word = 16'h7E_5A;
+            8'd24 : cmd_word = 16'h7F_69;
+            8'd25 : cmd_word = 16'h80_76;
+            8'd26 : cmd_word = 16'h81_80;
+            8'd27 : cmd_word = 16'h82_88;
+            8'd28 : cmd_word = 16'h83_8F;
+            8'd29 : cmd_word = 16'h84_96;
+            8'd30 : cmd_word = 16'h85_A3;
+            8'd31 : cmd_word = 16'h86_AF;
+            8'd32 : cmd_word = 16'h87_C4;
+            8'd33 : cmd_word = 16'h88_D7;
+            8'd34 : cmd_word = 16'h89_E8;
+            
+            // --- Slight contrast boost ---
+            8'd35 : cmd_word = 16'h56_40;
             default: cmd_word = 16'h0000;
         endcase
     end
