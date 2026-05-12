@@ -17,6 +17,7 @@
 // Output register file holds across the next scan so the VGA overlay always
 // sees a coherent face rectangle until we replace it.
 
+`include "scales.vh"
 `default_nettype none
 
 module detector_top #(
@@ -193,7 +194,7 @@ module detector_top #(
         u_c1_b (.clk(clk), .addr(c1_b_addr), .data(c1_b_data));
 
     conv_layer #(.IN_CH(1), .OUT_CH(8), .IN_H(24), .IN_W(24),
-                 .K(3), .STRIDE(2), .REQUANT_SHIFT(10)) u_c1 (
+                 .K(3), .STRIDE(2), .REQUANT_SHIFT(`CONV1_SHIFT)) u_c1 (
         .clk(clk), .rst(rst), .start(c1_start), .done(c1_done),
         .in_addr(inab_r_addr), .in_data(inab_r_data),
         .w_addr(c1_w_addr),    .w_data(c1_w_data),
@@ -213,7 +214,7 @@ module detector_top #(
         u_c2_b (.clk(clk), .addr(c2_b_addr), .data(c2_b_data));
 
     conv_layer #(.IN_CH(8), .OUT_CH(16), .IN_H(11), .IN_W(11),
-                 .K(3), .STRIDE(2), .REQUANT_SHIFT(8)) u_c2 (
+                 .K(3), .STRIDE(2), .REQUANT_SHIFT(`CONV2_SHIFT)) u_c2 (
         .clk(clk), .rst(rst), .start(c2_start), .done(c2_done),
         .in_addr(c1ab_r_addr), .in_data(c1ab_r_data),
         .w_addr(c2_w_addr),    .w_data(c2_w_data),
@@ -233,7 +234,7 @@ module detector_top #(
         u_c3_b (.clk(clk), .addr(c3_b_addr), .data(c3_b_data));
 
     conv_layer #(.IN_CH(16), .OUT_CH(16), .IN_H(5), .IN_W(5),
-                 .K(3), .STRIDE(1), .REQUANT_SHIFT(10)) u_c3 (
+                 .K(3), .STRIDE(1), .REQUANT_SHIFT(`CONV3_SHIFT)) u_c3 (
         .clk(clk), .rst(rst), .start(c3_start), .done(c3_done),
         .in_addr(c2ab_r_addr), .in_data(c2ab_r_data),
         .w_addr(c3_w_addr),    .w_data(c3_w_data),

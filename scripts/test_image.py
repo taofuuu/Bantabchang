@@ -30,7 +30,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 
-from quantize import IntegerFaceCNN
+from quantize import IntegerFaceBBoxCNN
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -42,23 +42,24 @@ PATCH = 24
 VGA_SCALE = 4  # FPGA pipeline upscales 160x120 -> 640x480 for VGA
 
 
-def load_int_model(pt_path: Path) -> IntegerFaceCNN:
+def load_int_model(pt_path: Path) -> IntegerFaceBBoxCNN:
     state = torch.load(pt_path, map_location="cpu", weights_only=True)
-    return IntegerFaceCNN(
+    return IntegerFaceBBoxCNN(
         state["w1_q"], state["b1_q"], state["shift1"],
         state["w2_q"], state["b2_q"], state["shift2"],
         state["w3_q"], state["b3_q"], state["shift3"],
         state["wfc_q"], state["bfc_q"],
+        state["fc_out_shift"],
     )
 
 
 def slide_and_score(
-    frame_u8: np.ndarray, model: IntegerFaceCNN, stride: int
-) -> list[tuple[int, int, int]]:
+    frame_u8: np.ndarray, model: IntegerFaceBBoxCNN, stride: int
+) -> list[tuple[int, int, float]]:
     """Run the int8 model on every stride-spaced 24x24 window of the frame.
 
-    Returns a list of (x, y, score) where score = logit[1] - logit[0].
-    Higher score means more face-like."""
+    Returns a list of (x, y, score) where score = confidence logit (out[:, 0]).
+    Higher score means more face-like; positive value means face detected."""
     patches = []
     coords: list[tuple[int, int]] = []
     for y in range(0, FRAME_H - PATCH + 1, stride):
@@ -66,9 +67,9 @@ def slide_and_score(
             patches.append(frame_u8[y : y + PATCH, x : x + PATCH])
             coords.append((x, y))
     batch = torch.from_numpy(np.stack(patches)).unsqueeze(1).to(torch.float32)
-    logits, _ = model.forward(batch)
-    scores = (logits[:, 1] - logits[:, 0]).to(torch.int32).numpy()
-    return [(coords[i][0], coords[i][1], int(scores[i])) for i in range(len(coords))]
+    out = model.forward(batch)   # (N, 5): [conf_logit, cx, cy, w, h]
+    scores = out[:, 0].numpy()
+    return [(coords[i][0], coords[i][1], float(scores[i])) for i in range(len(coords))]
 
 
 def main() -> int:
@@ -77,8 +78,8 @@ def main() -> int:
     p.add_argument("--in-pt", type=Path, default=DATA_DIR / "model_int8.pt")
     p.add_argument("--stride", type=int, default=4,
                    help="sliding-window stride in 160x120 pixel units (default 4)")
-    p.add_argument("--threshold", type=int, default=0,
-                   help="minimum logit gap to count as a hit (default 0 = argmax)")
+    p.add_argument("--threshold", type=float, default=0.0,
+                   help="minimum confidence logit to count as a hit (default 0.0)")
     p.add_argument("--top-k", type=int, default=0,
                    help="if >0, draw only the K strongest hits")
     p.add_argument("--out", type=Path, default=DATA_DIR / "review" / "result.png")
@@ -112,7 +113,7 @@ def main() -> int:
           f"{len(hits)} above threshold {args.threshold}")
     for i, (x, y, s) in enumerate(hits[:10]):
         marker = "  <-- strongest" if i == 0 else ""
-        print(f"  hit {i:2d}: x={x:3d} y={y:3d} score={s:5d}{marker}")
+        print(f"  hit {i:2d}: x={x:3d} y={y:3d} score={s:6.2f}{marker}")
 
     # Step 4: render a 640x480 VGA-style canvas with red detection boxes.
     out_w = FRAME_W * VGA_SCALE

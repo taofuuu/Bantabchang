@@ -1,7 +1,7 @@
 // fc bias, shape=(5,)
 // 5 int32 values, two's complement, one per line
-ffffffaa
-0000001a
-00000079
-00000089
-000000a9
+ffffffff
+0000026a
+00000175
+0000028e
+0000029c

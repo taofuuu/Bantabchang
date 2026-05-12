@@ -3,4 +3,4 @@ input_shape 1 24 24
 conv1_shape 8 11 11
 conv2_shape 16 5 5
 conv3_shape 16 3 3
-logits_shape 2
+logits_shape 5

@@ -14,7 +14,7 @@ Writes: data/golden/inputs.hex          int8, N_test * 24 * 24
         data/golden/conv2_act.hex       int8,  N_test * 5 * 5 * 16
         data/golden/conv3_acc.hex       int32, N_test * 3 * 3 * 16
         data/golden/conv3_act.hex       int8,  N_test * 3 * 3 * 16
-        data/golden/logits.hex          int32, N_test * 2
+        data/golden/logits.hex          int32, N_test * 5  (conf, cx, cy, w, h)
         data/golden/labels.hex          uint8, N_test (1=face, 0=non-face)
         data/golden/manifest.txt        shapes + counts so the TB can sanity-check
 
@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from quantize import IntegerFaceCNN
+from quantize import IntegerFaceBBoxCNN
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -76,16 +76,19 @@ def main() -> int:
                              np.zeros(args.n_test - n_per, dtype=np.uint8)])
 
     state = torch.load(args.in_pt, map_location="cpu", weights_only=True)
-    int_model = IntegerFaceCNN(
+    int_model = IntegerFaceBBoxCNN(
         state["w1_q"], state["b1_q"], state["shift1"],
         state["w2_q"], state["b2_q"], state["shift2"],
         state["w3_q"], state["b3_q"], state["shift3"],
         state["wfc_q"], state["bfc_q"],
+        state["fc_out_shift"],
     )
 
     # Forward all test inputs at once
     x_uint8 = torch.from_numpy(test_u8).unsqueeze(1).to(torch.float32)
-    logits, mids = int_model.forward(x_uint8)
+    out, mids = int_model.forward_with_intermediates(x_uint8)
+    # fc_int32 is the raw integer accumulator output (pre-dequant), used for RTL verification
+    logits = mids["fc_int32"]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -112,7 +115,7 @@ def main() -> int:
                   width=8, header="conv3 int8 post-ReLU activation, shape=(N,16,3,3)")
     write_int_hex(args.out_dir / "logits.hex",
                   logits.to(torch.int32).numpy(),
-                  width=32, header="fc int32 logits, shape=(N,2)")
+                  width=32, header="fc int32 outputs, shape=(N,5): [conf, cx, cy, w, h]")
     write_int_hex(args.out_dir / "labels.hex",
                   labels.astype(np.int32),
                   width=8, header="ground-truth labels, shape=(N,)")
@@ -123,10 +126,10 @@ def main() -> int:
         f.write("conv1_shape 8 11 11\n")
         f.write("conv2_shape 16 5 5\n")
         f.write("conv3_shape 16 3 3\n")
-        f.write("logits_shape 2\n")
+        f.write("logits_shape 5\n")
 
-    # Sanity report
-    pred = logits.argmax(dim=1).numpy()
+    # Sanity report: confidence logit > 0 → predicted face
+    pred = (out[:, 0] > 0).int().numpy()
     acc = (pred == labels).mean()
     print(f"golden vectors written to {args.out_dir}")
     print(f"int8 model accuracy on {args.n_test} test patches: {acc:.4f}")

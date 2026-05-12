@@ -98,25 +98,41 @@ class IntegerFaceBBoxCNN:
         b = b_int32.to(torch.float32)
         return F.conv2d(x, w, bias=b, stride=stride, padding=0)
 
-    def forward(self, x_uint8: torch.Tensor) -> torch.Tensor:
+    def _forward_layers(self, x_uint8: torch.Tensor):
         a0 = (x_uint8.to(torch.int16) - 128).clamp(INT8_MIN, INT8_MAX).to(torch.int8)
 
-        acc1 = self._conv(a0,                     self.w1_q, self.b1_q, stride=2)
+        acc1 = self._conv(a0,  self.w1_q, self.b1_q, stride=2)
         a1   = relu_clip_int8(arith_right_shift_round(acc1, self.shift1)).to(torch.int8)
 
-        acc2 = self._conv(a1,                     self.w2_q, self.b2_q, stride=2)
+        acc2 = self._conv(a1,  self.w2_q, self.b2_q, stride=2)
         a2   = relu_clip_int8(arith_right_shift_round(acc2, self.shift2)).to(torch.int8)
 
-        acc3 = self._conv(a2,                     self.w3_q, self.b3_q, stride=1)
+        acc3 = self._conv(a2,  self.w3_q, self.b3_q, stride=1)
         a3   = relu_clip_int8(arith_right_shift_round(acc3, self.shift3)).to(torch.int8)
 
-        flat = a3.reshape(a3.shape[0], -1).to(torch.float32)
+        flat     = a3.reshape(a3.shape[0], -1).to(torch.float32)
         fc_int32 = flat @ self.wfc_q.to(torch.float32).t() + self.bfc_q.to(torch.float32)
+        fc_dequant = fc_int32 / (2.0 ** self.fc_out_shift)
+        mids = {
+            "input_int8": a0,
+            "acc1": acc1, "a1": a1,
+            "acc2": acc2, "a2": a2,
+            "acc3": acc3, "a3": a3,
+            "fc_int32": fc_int32,
+        }
+        return fc_dequant, mids
+
+    def forward(self, x_uint8: torch.Tensor) -> torch.Tensor:
         # Dequantize to "training units" (pixels for bbox, raw logit for conf).
         # For the confidence head this is just the same logit divided by 2^shift,
         # so the > 0 test gives the same decision either way.
-        fc_dequant = fc_int32 / (2.0 ** self.fc_out_shift)
+        fc_dequant, _ = self._forward_layers(x_uint8)
         return fc_dequant
+
+    def forward_with_intermediates(
+        self, x_uint8: torch.Tensor
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        return self._forward_layers(x_uint8)
 
 
 def main() -> int:

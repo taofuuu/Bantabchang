@@ -1,18 +1,18 @@
 // conv2 bias,  shape=(16,)
 // 16 int32 values, two's complement, one per line
-000000ee
-00000164
-ffffff1b
-fffffdd1
-00000264
-000001b8
-0000013b
-fffffdab
-0000008e
-000001fc
-0000032b
-ffffffe9
-ffffff5d
-fffffd01
-fffffe22
-fffffdd7
+0000005c
+000000a6
+00000110
+0000000f
+00000034
+0000002c
+00000076
+ffffff25
+00000051
+0000004c
+000000c6
+00000040
+00000021
+ffffff70
+00000019
+0000004e

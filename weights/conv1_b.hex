@@ -1,10 +1,10 @@
 // conv1 bias,  shape=(8,)
 // 8 int32 values, two's complement, one per line
-00000db5
-00001de4
-000027e4
-000026f6
-00000066
-fffffe12
-ffffff94
-fffffa19
+000012c8
+00001818
+00000f9f
+00000241
+00000e87
+fffff082
+fffffada
+fffffd20
