@@ -53,7 +53,7 @@ module ov7670_config(
     // ---------------------------------------------------------------------
     // Register table - 8 entries, {sub-address, data}
     // ---------------------------------------------------------------------
-    localparam integer NUM_CMDS  = 8;
+    localparam integer NUM_CMDS  = 12;
     localparam [7:0]   CAM_WADDR = 8'h42;   // OV7670 slave write address
 
     reg  [7:0]  cmd_index;
@@ -69,6 +69,10 @@ module ov7670_config(
             8'd5: cmd_word = 16'h40_D0;  // COM15 - RGB565, full output range
             8'd6: cmd_word = 16'h3A_04;  // TSLB
             8'd7: cmd_word = 16'hB0_84;  // (reserved register required for clean RGB)
+            8'd8  : cmd_word = 16'h3D_C0; //UV saturation
+            8'd9  : cmd_word = 16'h01_C0; // blue gain
+            8'd10  : cmd_word = 16'h02_F0; // red gain
+            8'd11 : cmd_word = 16'h13_E5;
             default: cmd_word = 16'h0000;
         endcase
     end
