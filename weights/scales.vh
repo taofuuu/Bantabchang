@@ -3,16 +3,16 @@
 `define SCALES_VH
 // Per-conv requantization right-shifts
 `define CONV1_SHIFT      9
-`define CONV2_SHIFT      6
-`define CONV3_SHIFT      7
+`define CONV2_SHIFT      5
+`define CONV3_SHIFT      8
 // FC output dequantization shift: bbox_pixels = fc_int32 >>> FC_OUT_SHIFT
-`define FC_OUT_SHIFT     9
+`define FC_OUT_SHIFT     8
 // Activation / weight scale exponents (info only)
 `define INPUT_SCALE_EXP  7
-`define ACT1_SCALE_EXP   5
+`define ACT1_SCALE_EXP   4
 `define ACT2_SCALE_EXP   4
-`define ACT3_SCALE_EXP   3
-`define W1_SCALE_EXP     7
+`define ACT3_SCALE_EXP   2
+`define W1_SCALE_EXP     6
 `define W2_SCALE_EXP     5
 `define W3_SCALE_EXP     6
 `define WFC_SCALE_EXP    6

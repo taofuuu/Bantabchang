@@ -271,7 +271,7 @@ module camera_vga_top(
     detector_top #(
         // Confidence threshold on the raw int32 conf logit. 0 means "any
         // patch with sigmoid(conf) > 0.5". Bump up if you see false detections.
-        .THRESHOLD(32'sd1024),
+        .THRESHOLD(32'sd2800),
         // Sub-sample stride within each 24x24 patch. DILATE=3 means each
         // patch covers a 72x72 region of the 160x120 frame, matching the
         // scale the network is trained on.
@@ -397,8 +397,8 @@ module camera_vga_top(
     // VGA pixel output - gated by the registered active signal so the
     // BRAM data, the overlay, and the blanking interval all line up.
     //=======================================================================
-    assign vga_red   = vga_active_d ? (on_box ? 4'h0 : filtered_pixel[11:8]) : 4'h0;
-    assign vga_green = vga_active_d ? (on_box ? 4'hF : filtered_pixel[7:4])  : 4'h0;
+    assign vga_red   = vga_active_d ? (on_box ? 4'hF : filtered_pixel[11:8]) : 4'h0;
+    assign vga_green = vga_active_d ? (on_box ? 4'h0 : filtered_pixel[7:4])  : 4'h0;
     assign vga_blue  = vga_active_d ? (on_box ? 4'h0 : filtered_pixel[3:0])  : 4'h0;
 
     //=======================================================================
