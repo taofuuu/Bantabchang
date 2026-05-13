@@ -1,6 +1,5 @@
-// pull a 24x24 patch from frame_buffer, convert uint8 → int8 (^0x80), write to input act_buffer
-// DILATE stretches the patch to cover
-// PATCH*DILATE pixels in the real frame (e.g. DILATE=3 → 72x72 region)
+// pull a 24x24 patch from frame_buffer, convert uint8 → int8, write to input act_buffer
+// DILATE stretches the patch to cover PATCH*DILATE pixels in the real frame
 
 `default_nettype none
 

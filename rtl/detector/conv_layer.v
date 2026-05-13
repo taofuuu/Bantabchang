@@ -1,5 +1,5 @@
-// generic 2D conv + bias + relu + requantize. one mac per cycle.
-// address layout: input [ic,iy,ix], weight [oc,ic,ky,kx], output [oc,oy,ox].
+// generic 2D conv + bias + relu + requantize. one mac per cycle
+// address layout: input [ic,iy,ix], weight [oc,ic,ky,kx], output [oc,oy,ox]
 
 `default_nettype none
 

@@ -1,5 +1,5 @@
 // int32 acc → int8 post-relu
-// must match quantize.py:arith_right_shift_round + relu_clip_int8 bit-exactly
+// must match quantize.py
 
 `default_nettype none
 
