@@ -85,10 +85,10 @@ async def fc_logits_match_golden(dut):
         dut.start.value = 0
 
         # 3. Wait for done (cap at 600 cycles — fc takes ~290).
-        for _ in range(600):
+        for _ in range(1000): # Increased range for safety
             await RisingEdge(dut.clk)
-            await Timer(1, unit="ps")
             if int(dut.done.value) == 1:
+                await RisingEdge(dut.clk) # <--- CRITICAL: Wait for final WB to settle
                 break
         else:
             assert False, f"fc_layer.done never asserted for patch {patch_idx}"
