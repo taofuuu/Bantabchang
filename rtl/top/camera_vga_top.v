@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 `include "scales.vh"
-// top module: OV7670 camera + NN face detector + VGA display.
-// pipeline: camera → capture → CDC → detector → face_* → VGA bounding-box overlay.
+// top module: OV7670 camera + NN face detector + VGA display
+// pipeline: camera → capture → CDC → detector → face_* → VGA bounding-box overlay
 
 module camera_vga_top(
     input  wire        clk,            // 100 MHz from Basys 3

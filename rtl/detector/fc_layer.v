@@ -1,5 +1,5 @@
-// fully-connected layer: 144 inputs, 5 outputs (conf logit + bbox x0/y0/w/h).
-// one mac per cycle, sequential per output channel.
+// fully-connected layer: 144 inputs, 5 outputs (conf logit + bbox x0/y0/w/h)
+// one mac per cycle, sequential per output channel
 
 `default_nettype none
 

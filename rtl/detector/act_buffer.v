@@ -1,5 +1,5 @@
-// simple dual-port BRAM for inter-layer activations.
-// write port: synchronous. read port: 1-cycle latency.
+// simple dual-port BRAM for inter-layer activations
+// write port: synchronous. read port: 1-cycle latency
 
 `default_nettype none
 
