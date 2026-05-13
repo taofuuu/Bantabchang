@@ -96,67 +96,6 @@ All cross-domain signals use textbook two-FF synchronizers with `(* ASYNC_REG = 
 The detector runs sequentially through these stages for every candidate patch:
 
 ```
-<<<<<<< Updated upstream
-HWSynProject/
-├── rtl/                          # Synthesizable Verilog, split by subsystem
-│   ├── camera/                   # OV7670 capture + SCCB config           [owner: ?]
-│   ├── filter/                   # Image preprocessing                    [owner: ?]
-│   ├── detector/                 # NN face classifier                     [owner: this user]
-│   │   ├── detector_top.v        # Subsystem top — streaming → face_*
-│   │   ├── frame_buffer.v
-│   │   ├── patch_extractor.v
-│   │   ├── conv_layer.v
-│   │   ├── fc_layer.v
-│   │   ├── act_buffer.v
-│   │   ├── requantize.v
-│   │   └── weight_rom.v
-│   ├── overlay/                  # VGA + bounding-box draw                [owner: ?]
-│   └── top/                      # system_top.v wiring all subsystems
-│
-├── tb/                           # Cocotb testbenches, mirroring rtl/
-│   ├── camera/  filter/  overlay/  top/
-│   └── detector/
-│       ├── Makefile              # cocotb runner — `cd tb/detector && make TEST=…`
-│       ├── test_*.py             # Cocotb tests
-│       └── wrap_*.v              # Verilog wrappers exposing internal signals
-│
-├── constraints/
-│   └── basys3.xdc                # Pin map (clk, sw, led, OV7670, VGA)
-│
-├── vivado/
-│   └── build.tcl                 # Regenerates Vivado project — .xpr is gitignored
-│
-├── scripts/                      # Detector training & weight-export pipeline
-│   ├── build_dataset.py          # → data/crops_*.npy
-│   ├── model.py                  # PyTorch model definition
-│   ├── train.py                  # → data/model_float.pt
-│   ├── quantize.py               # → data/model_int8.{pt,json}
-│   ├── export_weights.py         # → weights/*.hex + scales.vh
-│   ├── dump_golden.py            # → data/golden/*.hex
-│   └── test_image.py             # End-to-end inference on one image
-│
-├── weights/                      # FPGA-deployable weight ROMs (committed)
-│   ├── conv{1,2,3}_w.hex         # INT8 weights
-│   ├── conv{1,2,3}_b.hex         # INT32 biases
-│   ├── fc_{w,b}.hex
-│   └── scales.vh                 # Per-layer requant shift constants
-│
-├── data/                         # Models + verification vectors
-│   ├── model_float.pt
-│   ├── model_int8.{pt,json}
-│   ├── golden/                   # Bit-exact PyTorch reference vectors
-│   ├── test_frame.hex            # 160×120 test frame for detector_top
-│   ├── test_input.jpg
-│   └── crops_*.npy               # Training crops (gitignored, regenerable)
-│
-├── docs/INTERFACES.md            # Signal contract at every subsystem boundary
-├── requirements.txt              # Python deps
-├── README.md
-└── .gitignore
-```
-
-`scripts/`, `weights/`, `data/` are detector-only — teammates working on camera/filter/overlay don't need to touch them.
-=======
  patch_extractor           24×24×1 int8
        │
  conv_layer (Conv1)    3×3, stride 2, 1→8 ch    ► 11×11×8   ReLU + requantize
@@ -175,7 +114,6 @@ HWSynProject/
 ```
 
 All layers use one-MAC-per-cycle sequential execution. A full three-conv + FC inference takes on the order of tens of thousands of cycles; `detector_top` tiles these serially across the scan grid and picks the highest-confidence result per frame.
->>>>>>> Stashed changes
 
 ---
 
@@ -234,15 +172,6 @@ All weights and activations are **int8**. Biases are **int32**. After each convo
 
 The FC layer outputs raw int32 values. The confidence score is compared directly against the `THRESHOLD` parameter (default 500). The four bbox outputs are right-shifted by `FC_OUT_SHIFT` (from `scales.vh`) to recover patch-pixel coordinates, then scaled by the dilation factor to get frame coordinates.
 
-<<<<<<< Updated upstream
-| Subsystem | RTL path        | TB path         | Owner |
-|-----------|-----------------|-----------------|-------|
-| Camera    | `rtl/camera/`   | `tb/camera/`    | Nooyz |
-| Filter    | `rtl/filter/`   | `tb/filter/`    | Nooyz |
-| Detector  | `rtl/detector/` | `tb/detector/`  | Toodz |
-| Overlay   | `rtl/overlay/`  | `tb/overlay/`   | Donoz |
-| Top       | `rtl/top/`      | `tb/top/`       | TBD   |
-=======
 ### Sliding Window Parameters (defaults)
 
 | Parameter | Value | Meaning |
@@ -355,4 +284,3 @@ Filters are applied to the display path only; the neural network always operates
 **Sequential MAC architecture:** Each `conv_layer` and `fc_layer` uses a single multiplier-accumulator running one multiply per clock cycle. This is resource-efficient on the Artix-7 but means each inference takes many thousands of cycles. Latency per patch: Conv1 ≈ 8×11×11×1×3×3 = 8712 cycles, Conv2 ≈ 16×5×5×8×3×3 = 28800 cycles, Conv3 ≈ 16×3×3×16×3×3 = 20736 cycles, FC ≈ 5×144 = 720 cycles.
 
 **Synthesis tip:** The `filter_frame_buffer` behavioral model infers a block RAM correctly with Vivado's default settings. For tighter timing you can replace it with a Vivado Block Memory Generator IP instance as described in the file's comments.
->>>>>>> Stashed changes
