@@ -1,16 +1,5 @@
-"""Tiny CNN for 24x24 grayscale face detection WITH bounding-box regression.
-
-Output is a 5-vector per patch:
-  fc_out[0]   = face confidence (raw logit; sigmoid'd at eval time)
-  fc_out[1:5] = bounding-box (cx, cy, w, h) in patch pixel coords [0, 24]
-
-Conv stack is unchanged from the previous classifier so the trained
-conv weights of the old model can be loaded as an initializer if desired:
-  Conv1: 1 -> 8  ch, 3x3, stride 2, ReLU  -> 11x11x8
-  Conv2: 8 -> 16 ch, 3x3, stride 2, ReLU  -> 5x5x16
-  Conv3: 16 -> 16 ch, 3x3, stride 1, ReLU -> 3x3x16
-  FC:    144 -> 5
-"""
+"""tiny CNN for 24x24 face detection with bounding-box regression.
+outputs [conf_logit, x0, y0, w, h] in patch pixel coords [0, 24]."""
 from __future__ import annotations
 
 import torch
@@ -53,5 +42,5 @@ class FaceBBoxCNN(nn.Module):
 
 
 def split_outputs(fc_out: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Convenience: split the 5-vector into (conf_logit, bbox)."""
+    """split the 5-vector into (conf_logit, bbox)."""
     return fc_out[:, 0], fc_out[:, 1:5]

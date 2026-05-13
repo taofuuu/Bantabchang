@@ -1,34 +1,6 @@
-// patch_extractor: pull a 24x24 patch out of frame_buffer, convert
-// uint8 pixel -> int8 (pixel - 128), and store it in the input act_buffer
-// for conv1 to consume.
-//
-// This is the FPGA analog of IntegerFaceCNN's input shaping in
-// scripts/quantize.py:
-//   a0 = (x_uint8.to(int16) - 128).clamp(-128, 127).to(int8)
-// Since we only feed in valid uint8 (0..255), the clamp is a no-op and the
-// conversion reduces to flipping the high bit: int8 = uint8 ^ 0x80.
-//
-// Pipeline:
-//   cycle T   : drive fb_r_addr for (ky=0, kx=0)
-//   cycle T+1 : fb_r_data = pixel(0,0); drive r_addr for (0,1); write (0,0)?
-//   ...
-//   one extra "drain" cycle at the end to retire the last write.
-//
-// Total run length: 24*24 + 1 = 577 cycles for the read+write phases, plus a
-// 1-cycle done pulse one cycle after the last write.
-//
-// Inputs:
-//   patch_x / patch_y : top-left corner of the patch in 160x120 frame coords
-//
-// Address layout (matches scripts/dump_golden.py):
-//   input act_buffer addr = ky * 24 + kx
-//   frame_buffer addr     = (patch_y + ky*DILATE) * 160 + (patch_x + kx*DILATE)
-//
-// DILATE: sub-sample stride within the patch. DILATE=1 reads contiguous
-// pixels (a 24x24 region). DILATE=2 reads every other pixel, so the CNN
-// sees a 24x24 patch that covers a 48x48 region of the camera frame -- a
-// "digital zoom out" that matches the CNN's training scale when the user
-// is too close to the camera.
+// pull a 24x24 patch from frame_buffer, convert uint8 → int8 (^0x80),
+// write to input act_buffer. DILATE stretches the patch to cover
+// PATCH*DILATE pixels in the real frame (e.g. DILATE=3 → 72x72 region).
 
 `default_nettype none
 
@@ -62,27 +34,25 @@ module patch_extractor #(
 
     reg [1:0] state, next;
 
-    // read counters (the (ky, kx) we are *issuing the read for* this cycle)
+    // read counters — address being issued this cycle
     reg [4:0] ky;       // 0..23 in 5 bits
     reg [4:0] kx;       // 0..23
 
-    // delayed counters for the write that goes with last cycle's read
+    // delayed by one cycle for write-back
     reg [4:0] ky_d;
     reg [4:0] kx_d;
     reg       valid_d;  // we issued a read on the previous cycle
 
-    // latched patch corner + dilate so the caller can deassert these after start
+    // latch inputs so caller can deassert after start
     reg [7:0] saved_px;
     reg [6:0] saved_py;
     reg [2:0] saved_dilate;
 
     wire kx_last   = (kx == PATCH - 1);
     wire ky_last   = (ky == PATCH - 1);
-    wire walk_last = ky_last && kx_last;   // the cycle issuing the LAST read
+    wire walk_last = ky_last && kx_last;   // last read cycle
 
-    // -------------------------------------------------------------------
     // next-state
-    // -------------------------------------------------------------------
     always @* begin
         next = state;
         case (state)
@@ -94,9 +64,7 @@ module patch_extractor #(
         endcase
     end
 
-    // -------------------------------------------------------------------
     // sequential
-    // -------------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
             state        <= S_IDLE;
@@ -126,21 +94,19 @@ module patch_extractor #(
                 end
 
                 S_WALK: begin
-                    // We drove fb_r_addr for (ky, kx) this cycle. The data
-                    // for the *previous* cycle's (ky_d, kx_d) is on fb_r_data,
-                    // so we issue the write for that prior coordinate.
+                    // data from last cycle's read is ready; write it now
                     if (valid_d) begin
                         ab_we     <= 1'b1;
                         ab_w_addr <= ky_d * PATCH + kx_d;
-                        // uint8 -> int8 by flipping the sign bit
+                        // uint8 → int8 by flipping sign bit
                         ab_w_data <= fb_r_data ^ 8'h80;
                     end
-                    // remember (ky, kx) so next cycle's write knows where it goes
+                    // save for next cycle's write
                     ky_d    <= ky;
                     kx_d    <= kx;
                     valid_d <= 1'b1;
 
-                    // advance read counters for the next cycle
+                    // advance read counters
                     if (kx_last) begin
                         kx <= 0;
                         if (!ky_last) ky <= ky + 1'b1;
@@ -150,7 +116,7 @@ module patch_extractor #(
                 end
 
                 S_DRAIN: begin
-                    // retire the very last read (no more reads to issue)
+                    // drain the last read
                     ab_we     <= 1'b1;
                     ab_w_addr <= ky_d * PATCH + kx_d;
                     ab_w_data <= fb_r_data ^ 8'h80;
@@ -161,11 +127,7 @@ module patch_extractor #(
         end
     end
 
-    // -------------------------------------------------------------------
-    // address driver — combinational, drives the frame_buffer read addr
-    // for the read we are issuing this cycle. saved_dilate makes the patch
-    // cover a PATCH*saved_dilate region in the 160x120 frame.
-    // -------------------------------------------------------------------
+    // address driver — combinational
     always @* begin
         fb_r_addr = (saved_py + ky*saved_dilate) * FRAME_W
                   + (saved_px + kx*saved_dilate);

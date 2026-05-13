@@ -1,23 +1,6 @@
-// frame_buffer: ingest the streaming filter output, hold one 160x120 frame.
-//
-// Write side (from teammate filter):
-//   - pixel[7:0]  : grayscale pixel
-//   - pixel_valid : 1-cycle pulse per pixel
-//   - frame_start : co-occurs with pixel_valid for pixel (0,0)
-//   - line_start  : co-occurs with pixel_valid for the first pixel of every row
-//                   (informational; we trust the upstream raster order)
-//
-// Internally the write address is a single 15-bit counter (15 bits covers
-// 0..19199). On frame_start it forces the first pixel to addr 0 and arms the
-// counter to 1; on every subsequent pixel_valid it increments.
-//
-// frame_done pulses for one cycle on the cycle the 19200th pixel is written.
-//
-// Read side (to patch extractor):
-//   - r_addr[14:0] : linear address (= y*160 + x)
-//   - r_data[7:0]  : pixel value, 1-cycle synchronous read
-//
-// Vivado will infer a single 19200x8 Block RAM.
+// holds one 160x120 grayscale frame.
+// write: streaming pixel_valid/frame_start. read: random 15-bit addr, 1-cycle latency.
+// frame_done pulses on the last pixel of each frame.
 
 `default_nettype none
 
@@ -46,14 +29,12 @@ module frame_buffer #(
     reg [7:0]        mem [0:FRAME_PIXELS-1];
     reg [ADDR_W-1:0] wr_ptr;                          // next write address
 
-    // Combinational write address: frame_start forces pixel (0,0) regardless
-    // of where wr_ptr was, which is how we recover from a partial frame.
+    // frame_start resets write addr to 0, recovering from partial frames
     wire [ADDR_W-1:0] write_addr = (pixel_valid && frame_start)
                                  ? {ADDR_W{1'b0}}
                                  : wr_ptr;
 
-    // unused but listed in port map for documentation; this dummy assign
-    // prevents a "signal driven but not used" warning in some tools.
+    // suppress unused warning
     wire _unused_line_start = line_start;
 
     always @(posedge clk) begin
@@ -65,7 +46,7 @@ module frame_buffer #(
             if (pixel_valid) begin
                 mem[write_addr] <= pixel;
                 if (frame_start) begin
-                    // wrote pixel 0, next pixel goes to addr 1
+                    // wrote pixel 0, next goes to addr 1
                     wr_ptr <= {{(ADDR_W-1){1'b0}}, 1'b1};
                 end else begin
                     wr_ptr <= wr_ptr + 1'b1;
@@ -77,7 +58,7 @@ module frame_buffer #(
         end
     end
 
-    // synchronous read port
+    // read port
     always @(posedge clk) begin
         r_data <= mem[r_addr];
     end

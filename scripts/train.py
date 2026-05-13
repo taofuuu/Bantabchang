@@ -1,17 +1,6 @@
-"""Train FaceBBoxCNN on the synthesised bounding-box dataset.
-
-Loss = BCE-with-logits on the confidence head
-     + lambda * SmoothL1 on the bbox head (positives only)
-
-Inputs:
-  data/bbox_dataset.npz   produced by build_dataset.py
-
-Output:
-  data/model_float.pt     state_dict of the trained model
-
-Usage:
-  python train.py --epochs 50
-"""
+"""train FaceBBoxCNN on the bbox dataset.
+loss = BCE-with-logits(conf) + lambda * SmoothL1(bbox, positives only).
+reads data/bbox_dataset.npz, saves data/model_float.pt."""
 from __future__ import annotations
 
 import argparse
@@ -54,7 +43,7 @@ class BBoxDataset(Dataset):
     def _augment(
         self, p: np.ndarray, conf: float, bbox: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        # horizontal flip (also mirrors bbox x0 -> 24 - x0 - w)
+        # horizontal flip, mirror bbox x
         if self.rng.random() < 0.5:
             p = p[:, ::-1]
             if conf > 0.5:
@@ -64,7 +53,7 @@ class BBoxDataset(Dataset):
         if self.rng.random() < 0.7:
             delta = int(self.rng.integers(-30, 30))
             p = np.clip(p.astype(np.int16) + delta, 0, 255).astype(np.uint8)
-        # gaussian sensor noise
+        # sensor noise
         if self.rng.random() < 0.5:
             sigma = self.rng.uniform(2.0, 8.0)
             noise = self.rng.normal(0.0, sigma, p.shape)
@@ -107,7 +96,7 @@ def compute_loss(
     conf_logit, bbox_pred = split_outputs(fc_out)
     conf_loss = F.binary_cross_entropy_with_logits(conf_logit, confs)
 
-    # Regression loss only on positive samples
+    # bbox loss only on positives
     pos_mask = confs > 0.5
     if pos_mask.any():
         bbox_loss = F.smooth_l1_loss(bbox_pred[pos_mask], bboxes[pos_mask])
@@ -158,9 +147,8 @@ def evaluate(model: nn.Module, loader: DataLoader, device: str, lambda_bbox: flo
 
 
 def maybe_init_from_classifier(model: FaceBBoxCNN, classifier_pt: Path) -> bool:
-    """If an old (classifier) model_float.pt is around, copy its conv weights
-    over to give the regressor a warm start. FC layer shape differs so we
-    just reinit that."""
+    """copy conv weights from an old classifier checkpoint as warm start.
+    fc layer shape differs so we skip it."""
     if not classifier_pt.exists():
         return False
     try:
@@ -228,7 +216,7 @@ def main() -> int:
             opt.step()
 
         m = evaluate(model, val_loader, device, args.lambda_bbox)
-        # Composite metric: prefer high conf accuracy and low bbox MAE
+        # higher conf_acc and lower bbox_mae is better
         score = m["conf_acc"] - 0.02 * m["bbox_mae"]
         flag  = "  *" if score > best_score else ""
         print(

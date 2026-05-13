@@ -1,24 +1,5 @@
-// fc_layer: 144-input, 5-output fully-connected layer.
-//
-// Output channel layout (set by scripts/export_weights.py):
-//   out_conf : face / no-face confidence logit
-//   out_x0   : face top-left X inside the 24x24 patch  (int32 in scaled units)
-//   out_y0   : face top-left Y inside the 24x24 patch
-//   out_w    : face width  inside the 24x24 patch
-//   out_h    : face height inside the 24x24 patch
-//
-// The four bounding-box outputs are dequantized in detector_top by right-
-// shifting by FC_OUT_SHIFT bits (= W_FC_SCALE_EXP + ACT3_SCALE_EXP); the
-// result is in patch pixel coordinates [0, 24].
-//
-// Address layout (matches scripts/export_weights.py):
-//   input  : addr = i
-//   weight : addr = oc * IN_LEN + i               (oc 0..4, i 0..143)
-//   bias   : addr = oc
-//
-// One MAC per cycle, sequential per output channel. Same FSM skeleton as
-// the previous 2-output classifier; only the output port width and the
-// writeback case expand.
+// fully-connected layer: 144 inputs, 5 outputs (conf logit + bbox x0/y0/w/h).
+// one mac per cycle, sequential per output channel.
 
 `default_nettype none
 
@@ -31,15 +12,15 @@ module fc_layer #(
     input  wire        start,
     output reg         done,
 
-    // input act_buffer (1-cycle synchronous read)
+    // input act_buffer, 1-cycle read
     output reg  [7:0]        in_addr,
     input  wire signed [7:0] in_data,
 
-    // weight ROM (1-cycle synchronous read) - need ceil(log2(IN_LEN*OUT_LEN)) bits
+    // weight ROM, 1-cycle read
     output reg  [9:0]        w_addr,
     input  wire signed [7:0] w_data,
 
-    // bias ROM (1-cycle synchronous read) - 3 bits supports up to 8 outputs
+    // bias ROM, 1-cycle read
     output reg  [2:0]         b_addr,
     input  wire signed [31:0] b_data,
 
@@ -72,9 +53,7 @@ module fc_layer #(
 
     wire signed [15:0] mac_prod = in_data * w_data;
 
-    // -------------------------------------------------------------------
     // next-state
-    // -------------------------------------------------------------------
     always @* begin
         next = state;
         case (state)
@@ -95,9 +74,7 @@ module fc_layer #(
         endcase
     end
 
-    // -------------------------------------------------------------------
     // sequential
-    // -------------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
             state    <= S_IDLE;
@@ -149,9 +126,7 @@ module fc_layer #(
         end
     end
 
-    // -------------------------------------------------------------------
     // address drivers
-    // -------------------------------------------------------------------
     always @* begin
         b_addr  = oc;
         in_addr = i;

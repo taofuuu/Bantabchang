@@ -1,26 +1,6 @@
-"""Post-training INT8 quantization of FaceBBoxCNN with power-of-two scales.
-
-Quantization is identical to the old classifier version for the conv stack
-(per-tensor symmetric, power-of-two so requantization is a right-shift).
-What changes:
-
-  - The FC head now has 5 outputs, not 2. Output[0] is the confidence
-    logit; output[1:5] are bbox values in patch pixel coordinates [0, 24].
-
-  - The FC outputs are dequantized in the RTL by right-shifting by
-    (W_FC_SCALE_EXP + ACT3_SCALE_EXP) bits — this recovers a value in the
-    same units the network was trained on (pixels, 0..24). We write that
-    shift out as FC_OUT_SHIFT in scales.vh so detector_top.v can use it.
-
-  - Calibration set comes from data/bbox_dataset.npz now.
-
-Inputs:
-  data/model_float.pt       trained FaceBBoxCNN
-  data/bbox_dataset.npz     calibration patches
-Outputs:
-  data/model_int8.json
-  data/model_int8.pt
-"""
+"""post-training INT8 quantization with power-of-two scales.
+fc head has 5 outputs: conf logit + bbox (x0,y0,w,h) in patch pixels.
+reads data/model_float.pt, writes data/model_int8.json and data/model_int8.pt."""
 from __future__ import annotations
 
 import argparse
@@ -123,9 +103,7 @@ class IntegerFaceBBoxCNN:
         return fc_dequant, mids
 
     def forward(self, x_uint8: torch.Tensor) -> torch.Tensor:
-        # Dequantize to "training units" (pixels for bbox, raw logit for conf).
-        # For the confidence head this is just the same logit divided by 2^shift,
-        # so the > 0 test gives the same decision either way.
+        # dequantize to pixel/logit units
         fc_dequant, _ = self._forward_layers(x_uint8)
         return fc_dequant
 
@@ -176,7 +154,7 @@ def main() -> int:
     model.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     model.eval()
 
-    # ---------- Float accuracy on calibration set ----------
+    # float accuracy on calibration set
     with torch.no_grad():
         float_out = model(calib_x)
     float_conf_correct = ((torch.sigmoid(float_out[:, 0]) > 0.5).float() == calib_conf).float().mean().item()

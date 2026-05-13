@@ -1,30 +1,7 @@
 `timescale 1ns / 1ps
 `include "scales.vh"
-//////////////////////////////////////////////////////////////////////////////////
-// Top Module: OV7670 + NN Face Detector + VGA Display
-//
-// Pipeline:
-//   OV7670 ── ov7670_capture ──┬──► RGB444 frame buffer ──► VGA preview
-//                              │                                  │
-//                              │     (ov7670_capture also emits   │
-//                              │      a 160x120 8-bit grayscale   │
-//                              │      stream tapped from the same │
-//                              │      RGB565 byte pair)           │
-//                              ▼                                  │
-//                        pixel_stream_cdc                         │
-//                       (pclk → system clk)                       │
-//                              │                                  │
-//                              ▼                                  │
-//                         detector_top ─────► face_x / face_y / face_w / face_h
-//                              │                                  │
-//                              └──── bounding-box overlay ────────┘
-//                                            │
-//                                            ▼
-//                                        VGA output
-//
-// All RTL clocked from a single 100 MHz input. The clock wizard derives a
-// 25 MHz pixel clock for VGA timing and a 24 MHz master clock for the camera.
-//////////////////////////////////////////////////////////////////////////////////
+// top module: OV7670 camera + NN face detector + VGA display.
+// pipeline: camera → capture → CDC → detector → face_* → VGA bounding-box overlay.
 
 module camera_vga_top(
     input  wire        clk,            // 100 MHz from Basys 3
@@ -53,9 +30,7 @@ module camera_vga_top(
     output wire [7:0]  led
 );
 
-    //=======================================================================
-    // Clocks
-    //=======================================================================
+    // clocks
     wire clk_25mhz;
     wire clk_24mhz;
     wire clk_locked;
@@ -68,9 +43,7 @@ module camera_vga_top(
         .locked(clk_locked)
     );
 
-    //=======================================================================
-    // Reset synchronizers (async-assert, sync-deassert)
-    //=======================================================================
+    // reset synchronizers (async-assert, sync-deassert)
     reg [1:0] rst_clk_sync;
     always @(posedge clk or posedge reset) begin
         if (reset) rst_clk_sync <= 2'b11;
@@ -85,16 +58,12 @@ module camera_vga_top(
     end
     wire rst_25 = rst_25_sync[1];
 
-    //=======================================================================
-    // Camera fixed strapping
-    //=======================================================================
-    assign camera_pwdn  = 1'b0;       // camera not in power-down
-    assign camera_reset = 1'b1;       // camera reset deasserted (active low)
+    // camera strapping
+    assign camera_pwdn  = 1'b0;       // not in power-down
+    assign camera_reset = 1'b1;       // reset deasserted (active low)
     assign camera_xclk  = clk_24mhz;
 
-    //=======================================================================
-    // SCCB configuration
-    //=======================================================================
+    // SCCB config
     wire config_done;
     wire sccb_busy;
     wire sccb_nak_seen;
@@ -109,20 +78,18 @@ module camera_vga_top(
         .sccb_nak_seen(sccb_nak_seen)
     );
 
-    //=======================================================================
-    // Camera capture (RGB444 → frame buffer + 160x120 grayscale stream)
-    //=======================================================================
+    // camera capture
     wire [16:0] write_addr;
     wire [11:0] write_data;
     wire        write_enable;
 
-    // Camera-domain (pclk) grayscale stream
+    // pclk grayscale stream
     wire        cam_stream_valid;
     wire        cam_stream_frame_start;
     wire        cam_stream_line_start;
     wire [7:0]  cam_stream_pixel;
 
-    // Capture diagnostics (pclk domain; see CDC below)
+    // capture diagnostics (pclk domain)
     wire        cap_frame_format_ok;
     wire        cap_frame_heartbeat;
 
@@ -146,9 +113,7 @@ module camera_vga_top(
         .frame_heartbeat(cap_frame_heartbeat)
     );
 
-    //=======================================================================
-    // CDC: pclk-domain diagnostic flags -> clk domain (for LEDs)
-    //=======================================================================
+    // CDC: pclk diagnostics → clk domain (for LEDs)
     (* ASYNC_REG = "TRUE" *) reg cap_fok_meta;
     (* ASYNC_REG = "TRUE" *) reg cap_fok_sync;
     (* ASYNC_REG = "TRUE" *) reg cap_fhb_meta;
@@ -160,9 +125,7 @@ module camera_vga_top(
         cap_fhb_sync <= cap_fhb_meta;
     end
 
-    //=======================================================================
     // VGA timing
-    //=======================================================================
     wire        vga_active;
     wire [9:0]  vga_x;
     wire [9:0]  vga_y;
@@ -177,16 +140,7 @@ module camera_vga_top(
         .y_pos(vga_y)
     );
 
-    //=======================================================================
-    // VGA read address (×2 pixel doubling: 320x240 → 640x480)
-    //
-    // active/x_pos/y_pos out of vga_controller are combinational; the BRAM
-    // read port has 1 cycle of latency. We register the timing signals once
-    // to keep them aligned with the pixel data that arrives at the filter.
-    // Without this the very first column of every line shows the previous
-    // line's out-of-range read (which lands as black) -> a thin vertical
-    // strip on the left edge.
-    //=======================================================================
+    // VGA read address (2x pixel doubling; timing delayed 1 cycle to match BRAM latency)
     wire [16:0] read_addr;
     wire [11:0] read_data;
     wire [16:0] row_offset = (vga_y[9:1] << 8) + (vga_y[9:1] << 6); // y/2 * 320
@@ -207,9 +161,7 @@ module camera_vga_top(
         end
     end
 
-    //=======================================================================
-    // RGB444 frame buffer (camera ↔ VGA)
-    //=======================================================================
+    // RGB444 frame buffer
     filter_frame_buffer fb (
         .clka(camera_pclk),
         .wea(write_enable),
@@ -221,9 +173,7 @@ module camera_vga_top(
         .doutb(read_data)
     );
 
-    //=======================================================================
-    // Display filter (operator-selectable visualisation, RGB444 in/out)
-    //=======================================================================
+    // display filter
     wire [11:0] filtered_pixel;
 
     image_filter filter (
@@ -232,9 +182,7 @@ module camera_vga_top(
         .pixel_out(filtered_pixel)
     );
 
-    //=======================================================================
-    // pclk → clk CDC for the detector pixel stream
-    //=======================================================================
+    // pclk → clk CDC for detector
     wire        det_in_valid;
     wire        det_in_frame_start;
     wire        det_in_line_start;
@@ -256,9 +204,7 @@ module camera_vga_top(
         .dst_pixel(det_in_pixel)
     );
 
-    //=======================================================================
     // NN face detector
-    //=======================================================================
     wire        det_face_valid;
     wire [7:0]  det_face_x;
     wire [6:0]  det_face_y;
@@ -266,21 +212,13 @@ module camera_vga_top(
     wire [6:0]  det_face_h;
     wire        det_scan_done;
 
-    // Use basenames so $readmemh resolves through Vivado's project sources
-    // (build.tcl adds rtl/../weights/*.hex as Memory Initialization Files).
+    // basenames so $readmemh resolves through Vivado's Memory Initialization Files
     detector_top #(
-        // Confidence threshold on the raw int32 conf logit. From the golden
-        // test set, true positives land in [1103, 4772] and true negatives in
-        // [-4519, -386], so there's a wide pos/neg gap. 500 puts us safely
-        // above every test negative while still accepting every test positive
-        // — important because real-camera frames produce lower logits than
-        // the cleaner LFW training images. Increase if false detections appear.
+        // 500 clears all test negatives while accepting all test positives
         .THRESHOLD(32'sd500),
-        // Sub-sample stride within each 24x24 patch. DILATE=3 means each
-        // patch covers a 72x72 region of the 160x120 frame, matching the
-        // scale the network is trained on.
+        // DILATE=3: each patch covers 72x72 pixels in the frame
         .DILATE(3'd3),
-        // Driven from weights/scales.vh (auto-generated by export_weights.py).
+        // from weights/scales.vh (auto-generated)
         .BBOX_SHIFT(`FC_OUT_SHIFT),
         .CONV1_W_FILE("conv1_w.hex"),
         .CONV1_B_FILE("conv1_b.hex"),
@@ -307,16 +245,7 @@ module camera_vga_top(
         .scan_done(det_scan_done)
     );
 
-    //=======================================================================
-    // CDC of face_* register file from clk → clk_25mhz (overlay)
-    //
-    //   - On the clk side, every scan_done pulse flips a toggle bit.
-    //   - On the 25 MHz side, the toggle is 2-FF synchronized and edge-detected;
-    //     on each edge we latch the (now-stable) face_* values.
-    //
-    // The face_* signals only update once per scan (~13 ms apart) so they are
-    // stable for thousands of clk_25mhz cycles when we sample them.
-    //=======================================================================
+    // CDC face_* from clk → clk_25mhz; toggle-sync, edge-detect, then latch
     reg det_update_toggle;
     always @(posedge clk_25mhz) begin
         if (rst_25)               det_update_toggle <= 1'b0;
@@ -333,12 +262,7 @@ module camera_vga_top(
     reg [7:0]  vga_face_w;
     reg [6:0]  vga_face_h;
 
-    // Hold the last positive detection across a few empty scans. The CNN is
-    // not 100% recall on every frame; without persistence the box blinks off
-    // for every missed scan even while the face is clearly there. At ~8 scans
-    // per second a hold of 8 keeps the box visible for ~1 s after the last
-    // confirmed detection — long enough to ride out a few weak frames, short
-    // enough that a real disappearance is still obvious.
+    // hold bbox for a few missed scans to avoid flickering (~1 s at 8 scans/sec)
     localparam [3:0] FACE_HOLD_FRAMES = 4'd8;
     reg [3:0] face_hold_cnt;
 
@@ -366,8 +290,7 @@ module camera_vga_top(
                     vga_face_h     <= det_face_h;
                     face_hold_cnt  <= FACE_HOLD_FRAMES;
                 end else if (face_hold_cnt != 4'd0) begin
-                    // No face this scan, but we are still inside the hold
-                    // window - keep the previous box on screen.
+                    // no face but still in hold window
                     face_hold_cnt  <= face_hold_cnt - 1'b1;
                 end else begin
                     vga_face_valid <= 1'b0;
@@ -376,18 +299,13 @@ module camera_vga_top(
         end
     end
 
-    //=======================================================================
-    // Bounding-box overlay (160x120 → ×4 → 640x480)
-    //
-    // 2-pixel-thick green rectangle when face_valid is high.
-    //=======================================================================
+    // bounding-box overlay (×4 to VGA; 2-pixel green rect when face_valid)
     wire [9:0] box_x0 = {vga_face_x, 2'b00};            // 8b * 4 → 10b
     wire [9:0] box_y0 = {1'b0, vga_face_y, 2'b00};      // 7b * 4 → 9b, pad to 10b
     wire [9:0] box_x1 = box_x0 + {vga_face_w, 2'b00} - 10'd1;
     wire [9:0] box_y1 = box_y0 + {1'b0, vga_face_h, 2'b00} - 10'd1;
 
-    // Use the registered timing signals so the overlay aligns with the
-    // pixel data that arrives one cycle after read_addr is presented.
+    // registered timing aligns overlay with BRAM latency
     wire in_box_x = (vga_x_d >= box_x0) && (vga_x_d <= box_x1);
     wire in_box_y = (vga_y_d >= box_y0) && (vga_y_d <= box_y1);
 
@@ -398,35 +316,20 @@ module camera_vga_top(
 
     wire on_box = vga_face_valid && (on_top | on_bottom | on_left | on_right);
 
-    //=======================================================================
-    // VGA pixel output - gated by the registered active signal so the
-    // BRAM data, the overlay, and the blanking interval all line up.
-    //=======================================================================
+    // VGA pixel output, gated by registered active
     assign vga_red   = vga_active_d ? (on_box ? 4'hF : filtered_pixel[11:8]) : 4'h0;
     assign vga_green = vga_active_d ? (on_box ? 4'h0 : filtered_pixel[7:4])  : 4'h0;
     assign vga_blue  = vga_active_d ? (on_box ? 4'h0 : filtered_pixel[3:0])  : 4'h0;
 
-    //=======================================================================
-    // Debug LEDs
-    //
-    // After boot, with everything healthy:
-    //   LD0 on, LD1 blinking with vsync, LD2 blinking with scans,
-    //   LD3 on while a face is latched, LD4 off (idle SCCB),
-    //   LD5 off (no NAKs after retries), LD6 on (frame format OK),
-    //   LD7 toggling every frame (heartbeat).
-    //
-    // Trouble:
-    //   LD5 on -> SCCB still failing -> camera in undefined state
-    //   LD6 off -> capture is not seeing the expected 640x240 byte/line layout
-    //   LD7 not toggling -> no frames are coming out of the camera
-    //=======================================================================
+    // debug LEDs: 0=config_done 1=vsync 2=scan_blink 3=face_latched
+    //             4=sccb_busy 5=nak_seen 6=frame_ok 7=heartbeat
     assign led[0] = config_done;
     assign led[1] = camera_vsync;
     assign led[2] = det_scan_done;       // blinks once per scan
-    assign led[3] = det_face_valid;      // lit when a face is currently latched
+    assign led[3] = det_face_valid;      // face currently latched
     assign led[4] = sccb_busy;           // SCCB transaction in progress
-    assign led[5] = sccb_nak_seen;       // latched: any register failed after retries
-    assign led[6] = cap_fok_sync;        // last frame had 640 bytes/line and 240 lines
-    assign led[7] = cap_fhb_sync;        // toggles every frame (capture heartbeat)
+    assign led[5] = sccb_nak_seen;       // any reg failed after retries
+    assign led[6] = cap_fok_sync;        // frame format ok
+    assign led[7] = cap_fhb_sync;        // toggles every frame
 
 endmodule

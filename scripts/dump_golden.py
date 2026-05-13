@@ -1,29 +1,5 @@
-"""Dump golden per-layer activations for bit-exact RTL verification.
-
-For each test patch, runs the integer reference model and saves every layer's
-input / accumulator / output as a hex file. The SystemVerilog testbenches
-($readmemh + assert) read these to verify byte-for-byte equivalence with the
-Python reference.
-
-Reads:  data/model_int8.pt
-        data/crops_pos.npy   data/crops_neg.npy
-Writes: data/golden/inputs.hex          int8, N_test * 24 * 24
-        data/golden/conv1_acc.hex       int32, N_test * 11 * 11 * 8
-        data/golden/conv1_act.hex       int8,  N_test * 11 * 11 * 8
-        data/golden/conv2_acc.hex       int32, N_test * 5 * 5 * 16
-        data/golden/conv2_act.hex       int8,  N_test * 5 * 5 * 16
-        data/golden/conv3_acc.hex       int32, N_test * 3 * 3 * 16
-        data/golden/conv3_act.hex       int8,  N_test * 3 * 3 * 16
-        data/golden/logits.hex          int32, N_test * 5  (conf, cx, cy, w, h)
-        data/golden/labels.hex          uint8, N_test (1=face, 0=non-face)
-        data/golden/manifest.txt        shapes + counts so the TB can sanity-check
-
-Tensor flatten order is C-order with channel-innermost, matching the conv
-weight order in export_weights.py.
-
-Usage:
-  python dump_golden.py --n-test 50
-"""
+"""dump golden per-layer activations for RTL bit-exact verification.
+reads data/model_int8.pt and crops, writes hex files to data/golden/."""
 from __future__ import annotations
 
 import argparse
@@ -84,10 +60,10 @@ def main() -> int:
         state["fc_out_shift"],
     )
 
-    # Forward all test inputs at once
+    # forward all test inputs
     x_uint8 = torch.from_numpy(test_u8).unsqueeze(1).to(torch.float32)
     out, mids = int_model.forward_with_intermediates(x_uint8)
-    # fc_int32 is the raw integer accumulator output (pre-dequant), used for RTL verification
+    # raw fc int32 before dequant, used for RTL check
     logits = mids["fc_int32"]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -128,7 +104,7 @@ def main() -> int:
         f.write("conv3_shape 16 3 3\n")
         f.write("logits_shape 5\n")
 
-    # Sanity report: confidence logit > 0 → predicted face
+    # quick accuracy check
     pred = (out[:, 0] > 0).int().numpy()
     acc = (pred == labels).mean()
     print(f"golden vectors written to {args.out_dir}")

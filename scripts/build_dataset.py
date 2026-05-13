@@ -1,26 +1,5 @@
-"""Synthesize a bounding-box dataset from existing 24x24 face/background crops.
-
-The original dataset is just face/no-face crops (data/crops_pos.npy and
-data/crops_neg.npy). For bounding-box regression we need (24x24 patch + bbox
-label) pairs, which we synthesize here by pasting a resized face into a
-background patch at a random position.
-
-Output:
-  data/bbox_dataset.npz
-    patches  (N, 24, 24) uint8
-    confs    (N,) float32  - 1 for positive, 0 for negative
-    bboxes   (N, 4) float32 - (x0, y0, w, h) in patch pixel coords [0, 24].
-                              x0, y0 = top-left corner of the face inside the
-                              patch; w, h = face width/height. Zeros for
-                              negatives (ignored in loss).
-
-Positive samples: each face crop is reused multiple times at different
-target sizes (POS_SIZES) and pasted positions, so a single face becomes
-several training examples covering varied scales.
-
-Usage:
-  python build_dataset.py
-"""
+"""synthesize bbox training data by pasting resized faces into backgrounds.
+outputs data/bbox_dataset.npz with patches, confs, and bboxes arrays."""
 from __future__ import annotations
 
 import argparse
@@ -32,8 +11,7 @@ from PIL import Image
 
 PATCH_SIZE = 24
 
-# Face target sizes in patch pixels. Each face crop produces this many
-# positive variants. 24 = face fills the whole patch; 10 = tiny face.
+# face target sizes; each face generates this many positive variants
 POS_SIZES = (10, 12, 14, 16, 18, 20, 22, 24)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -49,8 +27,7 @@ def resize_face(face_u8: np.ndarray, target: int) -> np.ndarray:
 def paste_with_alpha(
     bg: np.ndarray, face: np.ndarray, x0: int, y0: int, blend: float
 ) -> np.ndarray:
-    """Drop `face` into `bg` at (x0, y0) with simple alpha blending at the
-    edges so the paste seam isn't a sharp box the CNN can learn shortcuts on."""
+    """paste face into bg at (x0, y0) with edge blending to avoid sharp seam."""
     h, w = face.shape
     out  = bg.copy()
     region = out[y0:y0 + h, x0:x0 + w].astype(np.float32)
@@ -100,8 +77,7 @@ def main() -> int:
     print(f"synthesised {len(pos_patches)} positive (face, bbox) samples"
           f"  ({len(faces)} faces x {len(POS_SIZES)} sizes)")
 
-    # Negatives: use background crops directly. We optionally add more by mixing
-    # backgrounds to keep classes balanced.
+    # balance classes with background negatives
     n_neg_target = len(pos_patches)
     if len(backgrounds) < n_neg_target:
         idx = rng.choice(len(backgrounds), n_neg_target, replace=True)

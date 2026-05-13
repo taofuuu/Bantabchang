@@ -1,28 +1,6 @@
-"""Add your own photos to the training data and retrain.
-
-STEP 1 – collect photos (phone or any camera):
-  • photos/pos/  put photos that contain a face (one main face per photo is fine)
-  • photos/neg/  put photos of your room / background with NO faces
-
-STEP 2 – run this script:
-  python scripts/add_own_photos.py
-
-STEP 3 – the script will:
-  1. Simulate OV7670 degradation (downsample → 160x120 grayscale + noise)
-  2. Auto-detect faces in pos/ with OpenCV Haar cascade
-  3. Extract 24x24 face patches  (positives)
-  4. Extract 24x24 background patches from non-face regions (negatives)
-  5. Append both to data/crops_pos.npy / data/crops_neg.npy
-  6. Run build_dataset → train → quantize → export automatically
-
-Tips for taking photos:
-  • Vary distance (face should be 20-80% of frame height)
-  • Vary lighting (overhead, side-lit, dim)
-  • Vary angles (straight, slight turn, slight up/down)
-  • For neg/ : photograph the walls, furniture, shelves in your lab — especially
-    anything that produced false positives on the FPGA
-  • ~30-50 face photos and ~30-50 background photos make a noticeable difference
-"""
+"""add your own face/background photos to training data and retrain.
+put face photos in photos/pos/ and backgrounds in photos/neg/, then run:
+  python scripts/add_own_photos.py"""
 from __future__ import annotations
 
 import argparse
@@ -41,17 +19,17 @@ FRAME_W  = 160
 FRAME_H  = 120
 PATCH    = 24
 
-# OpenCV Haar cascade bundled with opencv-python
+# haar cascade bundled with opencv-python
 CASCADE_PATH = Path(cv2.__file__).parent / "data" / "haarcascade_frontalface_default.xml"
 
-# OV7670 noise simulation: Gaussian sigma typical for a cheap CMOS sensor
+# OV7670 sensor noise simulation
 OV7670_NOISE_SIGMA = 4.0
 
 
 # ---------- OV7670 simulation ------------------------------------------------
 
 def sim_ov7670(img_path: Path, rng: np.random.Generator) -> np.ndarray:
-    """Load any photo and simulate what the OV7670 would produce: 160x120 uint8 grayscale."""
+    """simulate OV7670 output: downsample to 160x120 grayscale with noise."""
     img = Image.open(img_path).convert("L")                      # grayscale
     img = img.resize((FRAME_W, FRAME_H), Image.BILINEAR)         # downsample
     arr = np.array(img, dtype=np.float32)
@@ -63,7 +41,7 @@ def sim_ov7670(img_path: Path, rng: np.random.Generator) -> np.ndarray:
 # ---------- face detection ---------------------------------------------------
 
 def detect_faces(frame_u8: np.ndarray) -> list[tuple[int, int, int, int]]:
-    """Return list of (x, y, w, h) face bounding boxes in the 160x120 frame."""
+    """return list of (x, y, w, h) face boxes in the 160x120 frame."""
     if not CASCADE_PATH.exists():
         print(f"WARNING: Haar cascade not found at {CASCADE_PATH}. "
               "Skipping face detection — treating whole image centre as face.")
@@ -89,12 +67,12 @@ def extract_face_patches(
     frame_u8: np.ndarray,
     faces: list[tuple[int, int, int, int]],
 ) -> list[np.ndarray]:
-    """For each detected face, crop a 24x24 patch centred on it."""
+    """crop 24x24 patches centred on each detected face."""
     patches = []
     for (fx, fy, fw, fh) in faces:
         cx = fx + fw // 2
         cy = fy + fh // 2
-        # Place a PATCH-sized window centred on the face, clamped to frame
+        # centre patch on face, clamped to frame
         x0 = max(0, min(cx - PATCH // 2, FRAME_W - PATCH))
         y0 = max(0, min(cy - PATCH // 2, FRAME_H - PATCH))
         crop = frame_u8[y0 : y0 + PATCH, x0 : x0 + PATCH]
@@ -109,7 +87,7 @@ def extract_background_patches(
     n: int,
     rng: np.random.Generator,
 ) -> list[np.ndarray]:
-    """Sample n random 24x24 patches from regions well away from detected faces."""
+    """sample n background patches far from detected faces."""
     face_mask = np.zeros((FRAME_H, FRAME_W), dtype=bool)
     margin = PATCH
     for (fx, fy, fw, fh) in faces:
@@ -119,7 +97,7 @@ def extract_background_patches(
         y1 = min(FRAME_H, fy + fh + margin)
         face_mask[y0:y1, x0:x1] = True
 
-    # Build list of valid top-left corners
+    # find valid patch positions
     valid = []
     for y in range(0, FRAME_H - PATCH + 1, 4):
         for x in range(0, FRAME_W - PATCH + 1, 4):
@@ -220,7 +198,7 @@ def main() -> int:
 
     rng = np.random.default_rng(args.seed)
 
-    # Resolve dirs relative to repo root so the script works from anywhere
+    # resolve relative to repo root
     root     = SCRIPT_DIR.parent
     pos_dir  = (root / args.pos_dir) if not args.pos_dir.is_absolute() else args.pos_dir
     neg_dir  = (root / args.neg_dir) if not args.neg_dir.is_absolute() else args.neg_dir
@@ -248,7 +226,7 @@ def main() -> int:
         print("\nNo crops extracted. Create photos/pos/ and photos/neg/ and add images.")
         return 1
 
-    # Load existing crops and append
+    # load existing crops and append
     crops_pos_path = DATA_DIR / "crops_pos.npy"
     crops_neg_path = DATA_DIR / "crops_neg.npy"
 

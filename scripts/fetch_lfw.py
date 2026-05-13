@@ -1,26 +1,6 @@
-"""Build crops_pos.npy / crops_neg.npy from the LFW dataset.
-
-Uses the LFW funneled images already downloaded by sklearn's fetch_lfw_people
-(stored at data/raw/lfw_home/lfw_funneled/). Each image is 250x250 with the
-face roughly centred.
-
-  Positive : centre 150x150 crop  -> resized to 24x24 grayscale  (face)
-  Negative : two random 70x70 corner crops -> resized to 24x24   (background)
-
-Corners of the same images are used for negatives so both sets share the same
-photographic distribution — lighting, sensor noise, resolution — which is the
-key fix for the synthetic-only model that failed on real photos.
-
-If the sklearn cache is missing, run this first:
-  python -c "from sklearn.datasets import fetch_lfw_people; fetch_lfw_people(min_faces_per_person=1, color=False, data_home='data/raw')"
-
-Usage:
-  python scripts/fetch_lfw.py
-  python scripts/fetch_lfw.py --max-pos 5000 --max-neg 5000
-
-After this, re-run the full pipeline:
-  build_dataset.py -> train.py -> quantize.py -> export_weights.py
-"""
+"""extract face/background crops from the LFW dataset.
+positive: centre 150x150 → 24x24. negative: two 70x70 corner crops → 24x24.
+if sklearn cache is missing, run fetch_lfw_people first (see README)."""
 from __future__ import annotations
 
 import argparse
@@ -40,7 +20,7 @@ RAW_DIR    = DATA_DIR / "raw"
 LFW_DIR    = RAW_DIR / "lfw_home" / "lfw_funneled"
 
 
-# ---------- helpers ----------------------------------------------------------
+## helpers
 
 def _to_patch(arr: np.ndarray) -> np.ndarray:
     return np.array(
@@ -80,13 +60,13 @@ def extract_crops(
         if h < FACE_CROP or w < FACE_CROP:
             continue
 
-        # positive: centre crop (face region)
+        # positive: centre crop
         cy, cx = h // 2, w // 2
         r = FACE_CROP // 2
         face = arr[cy - r : cy + r, cx - r : cx + r]
         pos_crops.append(_to_patch(face))
 
-        # negatives: 2 random corners (background, well away from face centre)
+        # negatives: 2 random corner crops
         c = CORNER_SZ
         corners = [
             arr[:c,  :c ],   # top-left
@@ -100,7 +80,7 @@ def extract_crops(
     return pos_crops, neg_crops
 
 
-# ---------- main -------------------------------------------------------------
+## main
 
 def main() -> int:
     p = argparse.ArgumentParser()
