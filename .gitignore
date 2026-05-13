@@ -67,3 +67,8 @@ Thumbs.db
 .claude
 *.jpg
 *.png
+
+
+# ---------- Misc ----------
+iverilog-12_0/
+iverilog-12_0.tar.gz
