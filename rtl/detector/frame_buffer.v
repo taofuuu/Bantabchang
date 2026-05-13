@@ -1,6 +1,7 @@
-// holds one 160x120 grayscale frame.
-// write: streaming pixel_valid/frame_start. read: random 15-bit addr, 1-cycle latency.
-// frame_done pulses on the last pixel of each frame.
+// holds one 160x120 grayscale frame
+// write: streaming pixel_valid/frame_start 
+// read: random 15-bit addr, 1-cycle latency
+// frame_done pulses on the last pixel of each frame
 
 `default_nettype none
 

@@ -1,5 +1,5 @@
-// generic 2D conv + bias + relu + requantize. one mac per cycle.
-// address layout: input [ic,iy,ix], weight [oc,ic,ky,kx], output [oc,oy,ox].
+// generic 2D conv + bias + relu + requantize. one mac per cycle
+// address layout: input [ic,iy,ix], weight [oc,ic,ky,kx], output [oc,oy,ox]
 
 `default_nettype none
 
@@ -37,7 +37,7 @@ module conv_layer #(
     output reg  signed [7:0]                    out_data
 );
 
-    // counters — guard: $clog2(1)=0 makes reg [-1:0] which is illegal in some simulators
+    // counters guard
     localparam OC_BITS = (OUT_CH > 1) ? $clog2(OUT_CH) : 1;
     localparam OY_BITS = (OUT_H  > 1) ? $clog2(OUT_H ) : 1;
     localparam OX_BITS = (OUT_W  > 1) ? $clog2(OUT_W ) : 1;
@@ -74,7 +74,7 @@ module conv_layer #(
 
     reg signed [31:0] acc;
 
-    // 8x8 signed product; declared explicitly for clean sign-extension
+    // 8x8 signed product
     wire signed [15:0] mac_prod = in_data * w_data;
 
     // Requantize unit (combinational)

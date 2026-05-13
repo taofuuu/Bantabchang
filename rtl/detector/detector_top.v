@@ -1,5 +1,5 @@
-// sliding-window face detector. scans one full frame, picks the
-// highest-confidence patch and outputs dequantized face_* coords.
+// sliding-window face detector
+// scans one full frame, picks the highest-confidence patch and outputs dequantized face_* coords
 
 `include "scales.vh"
 `default_nettype none
