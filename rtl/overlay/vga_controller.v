@@ -1,21 +1,13 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// VGA Controller Module
-// 
-// Generates VGA timing signals for 640x480 @ 60Hz
-// Pixel clock: 25.175 MHz (we'll use 25 MHz from clock wizard)
-// 
-// VGA Timing Parameters:
-// Horizontal: 640 pixels + 16 front porch + 96 sync + 48 back porch = 800 total
-// Vertical: 480 lines + 10 front porch + 2 sync + 33 back porch = 525 total
-//////////////////////////////////////////////////////////////////////////////////
+// Generates VGA 640x480@60Hz timing signals by tracking pixel coordinates,
+// maintaining proper horizontal/vertical sync pulses and active display regions.
 
 module vga_controller(
-    input wire clk,           // 25 MHz pixel clock
+    input wire clk,           // 25 MHz pixel clock from clk_wiz_0
     input wire reset,
     
-    output reg hsync,         // Horizontal sync
-    output reg vsync,         // Vertical sync
+    output reg hsync,
+    output reg vsync,
     output wire active,       // High during active display region
     output wire [9:0] x_pos,  // Current X position (0-799)
     output wire [9:0] y_pos   // Current Y position (0-524)
@@ -79,7 +71,7 @@ module vga_controller(
         if (reset) begin
             hsync <= 1;
         end else begin
-            // HSYNC is low during sync period
+            //sync period
             if (h_count >= (H_DISPLAY + H_FRONT) && 
                 h_count < (H_DISPLAY + H_FRONT + H_SYNC)) begin
                 hsync <= 0;
@@ -94,7 +86,7 @@ module vga_controller(
         if (reset) begin
             vsync <= 1;
         end else begin
-            // VSYNC is low during sync period
+            //sync period
             if (v_count >= (V_DISPLAY + V_FRONT) && 
                 v_count < (V_DISPLAY + V_FRONT + V_SYNC)) begin
                 vsync <= 0;

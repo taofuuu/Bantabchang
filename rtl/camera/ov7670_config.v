@@ -1,22 +1,6 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// OV7670 SCCB Configuration (RGB565 / VGA 640x480 boot sequence)
-//
-// Eight register writes are enough to bring the camera up in RGB565 VGA mode:
-// soft-reset, prescaler on, PLL stabilize, COM7 = RGB, RGB444 off, COM15 with
-// the full-range RGB565 bit, TSLB, and the "magic" 0xB0 register that the
-// OmniVision app-note flips before reliable RGB output.
-//
-// SCL is built as a 4-phase waveform (low/low/high/high) so SDA can change
-// only while SCL is low - the I2C rule the camera enforces. After the soft
-// reset we hold off ~1 ms before sending the rest. This driver is open-loop
-// (no ACK read-back); the simpler protocol is what consistently leaves the
-// camera in a known state.
-//
-// Top hooks: config_done goes high once all eight writes are out; sccb_busy
-// reflects an active transaction; sccb_nak_seen is wired low because we do
-// not sample ACK in this version.
-//////////////////////////////////////////////////////////////////////////////////
+// Initializes the camera for VGA 640x480 RGB565 output
+// running through a 36-register sequence via open-loop SCCB/I2C.
 
 module ov7670_config(
     input  wire clk,            // 100 MHz system clock
@@ -28,11 +12,9 @@ module ov7670_config(
     output wire sccb_nak_seen
 );
 
-    // ---------------------------------------------------------------------
-    // Phase tick: divide 100 MHz so each SCCB phase lasts ~2.5 us
-    //   -> SCL period ~10 us  ->  ~100 kHz, comfortably inside SCCB spec.
-    // ---------------------------------------------------------------------
-    parameter [8:0] PHASE_TICKS = 9'd250;  // 100 MHz / 250 = 400 kHz tick
+    // Clock divider: 100MHz -> 400kHz tick (~2.5us per phase).
+    // This gives us a ~100kHz SCL, well within the SCCB spec.
+    parameter [8:0] PHASE_TICKS = 9'd250;
 
     reg [8:0] tick_div;
     reg       phase_tick;
@@ -50,9 +32,7 @@ module ov7670_config(
         end
     end
 
-    // ---------------------------------------------------------------------
-    // Register table - 8 entries, {sub-address, data}
-    // ---------------------------------------------------------------------
+    // Register table - 36 entries
     localparam integer NUM_CMDS  = 36;
     localparam [7:0]   CAM_WADDR = 8'h42;   // OV7670 slave write address
 
@@ -72,7 +52,7 @@ module ov7670_config(
             8'd8  : cmd_word = 16'h3D_C0; //UV saturation
             8'd9  : cmd_word = 16'h01_C0; // blue gain
             8'd10  : cmd_word = 16'h02_F0; // red gain
-            8'd11 : cmd_word = 16'h13_E5;
+            8'd11 : cmd_word = 16'h13_E5; // COM8 - auto control
             
             // --- Mild saturation boost ---
             8'd12 : cmd_word = 16'h4F_75;
@@ -107,15 +87,8 @@ module ov7670_config(
         endcase
     end
 
-    // ---------------------------------------------------------------------
-    // 4-phase SCCB FSM
-    //   P0/P1 : SCL low  (P1 = drive SDA)
-    //   P2/P3 : SCL high (SDA stable for slave)
-    //
-    // The 24-bit shift {slave, sub, data} is emitted MSB-first; after every
-    // 8 data bits an extra phase pair generates the don't-care/ACK bit during
-    // which we tristate SDA (no ACK sampling - open-loop).
-    // ---------------------------------------------------------------------
+    // SCCB FSM: 4-phase bit timing (SCL low = drive, SCL high = hold)
+    // Send 3 bytes (Slave/ Reg/ Data)
     localparam [3:0] ST_IDLE       = 4'd0;
     localparam [3:0] ST_START      = 4'd1;
     localparam [3:0] ST_SCL_LO_A   = 4'd2;
@@ -159,7 +132,6 @@ module ov7670_config(
             post_reset_cnt <= 11'd0;
         end else if (phase_tick) begin
             case (fsm_state)
-                // ---------------------------------------------------------
                 ST_IDLE: begin
                     if (cmd_index < NUM_CMDS) begin
                         // Wait ~1 ms after the soft reset command before going on
@@ -182,9 +154,11 @@ module ov7670_config(
                     fsm_state <= ST_SCL_LO_A;
                 end
 
-                // --- Send-bit phases ---
+                // Send-bit phases
+                // down SCL for update data
                 ST_SCL_LO_A:   begin sioc <= 1'b0;                  fsm_state <= ST_DRIVE_DATA; end
                 ST_DRIVE_DATA: begin sda_q <= tx_shift[bit_idx];    fsm_state <= ST_SCL_HI_A;   end
+                // rising SCL (flag ready data)
                 ST_SCL_HI_A:   begin sioc <= 1'b1;                  fsm_state <= ST_HOLD_A;     end
                 ST_HOLD_A: begin
                     if (bit_idx == 6'd16 || bit_idx == 6'd8 || bit_idx == 6'd0) begin
@@ -195,7 +169,7 @@ module ov7670_config(
                     end
                 end
 
-                // --- Don't-care / ACK phases (SDA tristated) ---
+                // Don't-care / Dummy ACK phases (SDA tristated)
                 ST_SCL_LO_B: begin sioc   <= 1'b0; fsm_state <= ST_RELEASE;   end
                 ST_RELEASE:  begin sda_oe <= 1'b0; fsm_state <= ST_SCL_HI_B;  end
                 ST_SCL_HI_B: begin sioc   <= 1'b1; fsm_state <= ST_HOLD_B;    end
@@ -210,7 +184,7 @@ module ov7670_config(
                 ST_NEXT_LO:  begin sioc   <= 1'b0; fsm_state <= ST_NEXT_DRV;  end
                 ST_NEXT_DRV: begin sda_oe <= 1'b1; fsm_state <= ST_DRIVE_DATA;end
 
-                // --- STOP: SDA rises while SCL is high ---
+                // STOP: SDA rises while SCL is high
                 ST_STOP_LO:  begin sioc   <= 1'b0;             fsm_state <= ST_STOP_DRV; end
                 ST_STOP_DRV: begin sda_oe <= 1'b1; sda_q <= 1'b0; fsm_state <= ST_STOP_HI;  end
                 ST_STOP_HI:  begin sioc   <= 1'b1;             fsm_state <= ST_FINISH;   end

@@ -1,8 +1,6 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Image Filter Module
-// 
-// Implements three image processing filters:
+
+// Implements image processing filters:
 // 000: No filter (original image)
 // 001: Grayscale conversion
 // 010: Color inversion (negative)
@@ -11,7 +9,6 @@
 // 101: Green channel only
 // 110: Blue channel only
 // 111: Brightness boost
-//////////////////////////////////////////////////////////////////////////////////
 
 module image_filter(
     input wire [11:0] pixel_in,    // RGB444 input
