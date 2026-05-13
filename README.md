@@ -29,26 +29,14 @@ See [`docs/INTERFACES.md`](docs/INTERFACES.md) for the signal contract at every 
 ```
 HWSynProject/
 ├── rtl/                          # Synthesizable Verilog, split by subsystem
-│   ├── camera/                   # OV7670 capture + SCCB config           [owner: ?]
-│   ├── filter/                   # Image preprocessing                    [owner: ?]
-│   ├── detector/                 # NN face classifier                     [owner: this user]
-│   │   ├── detector_top.v        # Subsystem top — streaming → face_*
-│   │   ├── frame_buffer.v
-│   │   ├── patch_extractor.v
-│   │   ├── conv_layer.v
-│   │   ├── fc_layer.v
-│   │   ├── act_buffer.v
-│   │   ├── requantize.v
-│   │   └── weight_rom.v
-│   ├── overlay/                  # VGA + bounding-box draw                [owner: ?]
+│   ├── camera/                   # OV7670 capture + SCCB config           [owner: nooyz]
+│   ├── filter/                   # Image preprocessing                    [owner: nooyz]
+│   ├── detector/                 # NN face classifier                     [owner: toodz]
+│   ├── overlay/                  # VGA + bounding-box draw                [owner: nooyz]
 │   └── top/                      # system_top.v wiring all subsystems
 │
 ├── tb/                           # Cocotb testbenches, mirroring rtl/
-│   ├── camera/  filter/  overlay/  top/
-│   └── detector/
-│       ├── Makefile              # cocotb runner — `cd tb/detector && make TEST=…`
-│       ├── test_*.py             # Cocotb tests
-│       └── wrap_*.v              # Verilog wrappers exposing internal signals
+│   └── camera/  filter/  overlay/  top/  detector/
 │
 ├── constraints/
 │   └── basys3.xdc                # Pin map (clk, sw, led, OV7670, VGA)
@@ -79,13 +67,11 @@ HWSynProject/
 │   ├── test_input.jpg
 │   └── crops_*.npy               # Training crops (gitignored, regenerable)
 │
-├── docs/INTERFACES.md            # Signal contract at every subsystem boundary
 ├── requirements.txt              # Python deps
 ├── README.md
 └── .gitignore
 ```
 
-`scripts/`, `weights/`, `data/` are detector-only — teammates working on camera/filter/overlay don't need to touch them.
 
 ## Workflow
 
@@ -127,5 +113,5 @@ Target FPGA: XC7A35T (33K LUT, 90 DSP, 225 KB BRAM). Estimated detector usage: ~
 | Camera    | `rtl/camera/`   | `tb/camera/`    | Nooyz |
 | Filter    | `rtl/filter/`   | `tb/filter/`    | Nooyz |
 | Detector  | `rtl/detector/` | `tb/detector/`  | Toodz |
-| Overlay   | `rtl/overlay/`  | `tb/overlay/`   | Donoz |
-| Top       | `rtl/top/`      | `tb/top/`       | TBD   |
+| Overlay   | `rtl/overlay/`  | `tb/overlay/`   | Nooyz |
+| Top       | `rtl/top/`      | `tb/top/`       | Toodz |

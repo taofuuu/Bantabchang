@@ -42,10 +42,6 @@ vivado/ip/*/doc/
 vivado/ip/*/example_design/
 vivado/ip/*/.Xil/
 
-# Teammate hand-off staging dirs (not part of the repo)
-project_1/
-.vjraaa/
-
 # ---------- Cocotb / iverilog ----------
 tb/sim_build/
 tb/results.xml
@@ -64,8 +60,5 @@ data/lfw/
 *.swo
 .DS_Store
 Thumbs.db
-.claude
 *.jpg
 *.png
-
-/WorkingProject
