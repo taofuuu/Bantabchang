@@ -1,5 +1,5 @@
-// int32 acc → int8 post-relu: y = clip(round(acc >> SHIFT), 0, 127).
-// must match quantize.py:arith_right_shift_round + relu_clip_int8 bit-exactly.
+// int32 acc → int8 post-relu
+// must match quantize.py
 
 `default_nettype none
 

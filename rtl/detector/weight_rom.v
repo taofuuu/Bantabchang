@@ -1,6 +1,6 @@
-// synchronous ROM for weights and biases, 1-cycle read latency.
-// initialized from a hex file (readmemh, one value per line).
-// set MEM_FILE="" to skip loading (useful for testbenches).
+// synchronous ROM for weights and biases, 1-cycle read latency
+// initialized from a hex file
+// set MEM_FILE="" to skip loading for testbenches
 
 `default_nettype none
 

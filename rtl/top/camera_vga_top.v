@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 `include "scales.vh"
-// top module: OV7670 camera + NN face detector + VGA display.
-// pipeline: camera → capture → CDC → detector → face_* → VGA bounding-box overlay.
+// top module: OV7670 camera + NN face detector + VGA display
+// pipeline: camera → capture → CDC → detector → face_* → VGA bounding-box overlay
 
 module camera_vga_top(
     input  wire        clk,            // 100 MHz from Basys 3
@@ -212,13 +212,12 @@ module camera_vga_top(
     wire [6:0]  det_face_h;
     wire        det_scan_done;
 
-    // basenames so $readmemh resolves through Vivado's Memory Initialization Files
     detector_top #(
         // 500 clears all test negatives while accepting all test positives
         .THRESHOLD(32'sd500),
         // DILATE=3: each patch covers 72x72 pixels in the frame
         .DILATE(3'd3),
-        // from weights/scales.vh (auto-generated)
+        // from weights/scales.vh
         .BBOX_SHIFT(`FC_OUT_SHIFT),
         .CONV1_W_FILE("conv1_w.hex"),
         .CONV1_B_FILE("conv1_b.hex"),
@@ -262,7 +261,7 @@ module camera_vga_top(
     reg [7:0]  vga_face_w;
     reg [6:0]  vga_face_h;
 
-    // hold bbox for a few missed scans to avoid flickering (~1 s at 8 scans/sec)
+    // hold bbox for a few missed scans to avoid flickering
     localparam [3:0] FACE_HOLD_FRAMES = 4'd8;
     reg [3:0] face_hold_cnt;
 
@@ -299,7 +298,7 @@ module camera_vga_top(
         end
     end
 
-    // bounding-box overlay (×4 to VGA; 2-pixel green rect when face_valid)
+    // bounding-box overlay
     wire [9:0] box_x0 = {vga_face_x, 2'b00};            // 8b * 4 → 10b
     wire [9:0] box_y0 = {1'b0, vga_face_y, 2'b00};      // 7b * 4 → 9b, pad to 10b
     wire [9:0] box_x1 = box_x0 + {vga_face_w, 2'b00} - 10'd1;
