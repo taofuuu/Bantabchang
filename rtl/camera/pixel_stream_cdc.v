@@ -1,33 +1,13 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// pixel_stream_cdc
-//
-// Move a 1-pixel-per-strobe handshake from the camera pclk domain to the system
-// clk domain. Uses the textbook "MCP formulation":
-//
-//   - In src domain (pclk), latch {pixel, frame_start, line_start} into a stable
-//     register and toggle a 1-bit flag whenever a new pixel arrives.
-//   - In dst domain (clk), 2-FF synchronize the toggle, edge-detect it, and
-//     re-emit pixel_valid as a 1-clk pulse together with the now-stable data.
-//
-// This is safe because the data bus is held constant for an entire pclk period
-// (~42 ns) while the dst clk samples it at 100 MHz — far more than the 2 dst
-// cycles needed for the synchronizer to settle. Adjacent pclk strobes are at
-// least 2 pclk cycles apart in our use case, which is also fine.
-//
-// We could replace this with xpm_fifo_async, but a FIFO doesn't help: the
-// detector either accepts every pixel of the next frame or it isn't ready and
-// drops it; backpressure would just stall the camera.
-//////////////////////////////////////////////////////////////////////////////////
-
 `default_nettype none
+// Performs safe Clock Domain Crossing (CDC) for pixel data
+// using toggle-based synchronizer, ensuring data stability when moving from the camera pclk
 
 module pixel_stream_cdc(
     // Source domain: camera pclk
     input  wire        src_clk,
     input  wire        src_rst,
     input  wire        src_valid,
-    input  wire        src_frame_start,
     input  wire        src_line_start,
     input  wire [7:0]  src_pixel,
 
@@ -40,10 +20,9 @@ module pixel_stream_cdc(
     output reg  [7:0]  dst_pixel
 );
 
-    // ------------------------------------------------------------------
-    // Source side: latch the payload and toggle a flag on every new pixel.
-    // ------------------------------------------------------------------
+    //flag every new pixel
     reg        src_toggle;
+    //latched
     reg [7:0]  src_pixel_l;
     reg        src_frame_start_l;
     reg        src_line_start_l;
@@ -62,12 +41,11 @@ module pixel_stream_cdc(
         end
     end
 
-    // ------------------------------------------------------------------
-    // Destination side: 2-FF synchronize the toggle, edge-detect, sample data.
-    // ------------------------------------------------------------------
+    // 2-stage synchronizer (FF) for stability
     (* ASYNC_REG = "TRUE" *) reg toggle_meta;
     (* ASYNC_REG = "TRUE" *) reg toggle_sync;
-    reg                      toggle_prev;
+    // Edge-detection
+    reg toggle_prev;
 
     always @(posedge dst_clk or posedge dst_rst) begin
         if (dst_rst) begin
