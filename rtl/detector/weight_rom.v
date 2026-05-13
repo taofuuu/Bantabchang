@@ -1,23 +1,6 @@
-// weight_rom: parameterized synchronous ROM, one-cycle read latency.
-//
-// Initialized at simulation/synthesis startup from a hex file (matches the
-// $readmemh format produced by scripts/export_weights.py: one signed value
-// per line, two's complement, comments allowed).
-//
-// Usage example (one ROM per weight tensor or bias tensor):
-//   weight_rom #(
-//       .WIDTH(8), .DEPTH(72), .ADDR_W(7),
-//       .MEM_FILE("weights/conv1_w.hex")
-//   ) u_conv1_w (.clk(clk), .addr(w_addr), .data(w_data));
-//
-//   weight_rom #(
-//       .WIDTH(32), .DEPTH(8), .ADDR_W(3),
-//       .MEM_FILE("weights/conv1_b.hex")
-//   ) u_conv1_b (.clk(clk), .addr(b_addr), .data(b_data));
-//
-// Vivado synthesis will infer Block RAM (or distributed RAM for small DEPTH).
-// Leaving MEM_FILE = "" skips $readmemh — useful when a testbench wants to
-// poke memory contents directly via hierarchical access.
+// synchronous ROM for weights and biases, 1-cycle read latency.
+// initialized from a hex file (readmemh, one value per line).
+// set MEM_FILE="" to skip loading (useful for testbenches).
 
 `default_nettype none
 

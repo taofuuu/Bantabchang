@@ -24,6 +24,7 @@ GOLDEN_DIR = PROJ_ROOT / "data" / "golden"
 
 N_TEST = 50            # matches dump_golden.py --n-test 50
 CONV3_PER_PATCH = 144  # 16 * 3 * 3
+FC_OUT_LEN      = 5    # conf, x0, y0, w, h
 NUM_PATCHES_TO_TEST = 5  # subset; the conv_layer integration test will hit all 50
 
 
@@ -50,7 +51,8 @@ async def fc_logits_match_golden(dut):
     logits = parse_int_hex(GOLDEN_DIR / "logits.hex", 32)
     assert len(conv3) == N_TEST * CONV3_PER_PATCH, (
         f"conv3_act.hex has {len(conv3)} entries; expected {N_TEST * CONV3_PER_PATCH}")
-    assert len(logits) == N_TEST * 2, f"logits.hex has {len(logits)}; expected {N_TEST * 2}"
+    assert len(logits) == N_TEST * FC_OUT_LEN, (
+        f"logits.hex has {len(logits)}; expected {N_TEST * FC_OUT_LEN}")
 
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
 
@@ -91,23 +93,29 @@ async def fc_logits_match_golden(dut):
         else:
             assert False, f"fc_layer.done never asserted for patch {patch_idx}"
 
-        # 4. Sample logits.
-        rtl_l0 = dut.logit0.value.to_signed()
-        rtl_l1 = dut.logit1.value.to_signed()
-        ref_l0 = logits[patch_idx * 2 + 0]
-        ref_l1 = logits[patch_idx * 2 + 1]
+        # 4. Sample all five FC outputs.
+        rtl_out = (
+            dut.out_conf.value.to_signed(),
+            dut.out_x0.value.to_signed(),
+            dut.out_y0.value.to_signed(),
+            dut.out_w.value.to_signed(),
+            dut.out_h.value.to_signed(),
+        )
+        base_ref = patch_idx * FC_OUT_LEN
+        ref_out = tuple(logits[base_ref + i] for i in range(FC_OUT_LEN))
 
-        if (rtl_l0, rtl_l1) != (ref_l0, ref_l1):
+        if rtl_out != ref_out:
+            diffs = tuple(r - g for r, g in zip(rtl_out, ref_out))
             dut._log.error(
-                f"patch {patch_idx}: rtl=({rtl_l0}, {rtl_l1}) "
-                f"ref=({ref_l0}, {ref_l1})  "
-                f"diff=({rtl_l0 - ref_l0:+d}, {rtl_l1 - ref_l1:+d})"
+                f"patch {patch_idx}: rtl={rtl_out}  ref={ref_out}  diff={diffs}"
             )
-            assert False, f"patch {patch_idx} logit mismatch"
+            assert False, f"patch {patch_idx} fc output mismatch"
         else:
             dut._log.info(
-                f"patch {patch_idx:2d}: logits=({rtl_l0:+8d}, {rtl_l1:+8d}) "
-                f"score={rtl_l1-rtl_l0:+d}  match"
+                f"patch {patch_idx:2d}: "
+                f"conf={rtl_out[0]:+8d}  "
+                f"x0={rtl_out[1]:+6d} y0={rtl_out[2]:+6d} "
+                f"w={rtl_out[3]:+6d} h={rtl_out[4]:+6d}  match"
             )
 
     dut._log.info(f"fc_layer: bit-exact on {NUM_PATCHES_TO_TEST} patches")

@@ -1,12 +1,5 @@
-// requantize: int32 accumulator -> int8 post-ReLU activation.
-//
-// y = clip( (acc + (1 << (SHIFT-1))) >>> SHIFT, 0, 127 )    // round-half-up, ReLU, sat
-//
-// Negative-shift case (SHIFT <= 0) is supported but unusual; for SHIFT==0 the
-// rounding bias is 0 and we just relu+saturate. SHIFT < 0 left-shifts (rare).
-//
-// This must match scripts/quantize.py:arith_right_shift_round + relu_clip_int8
-// bit-exactly for every value in the int32 domain.
+// int32 acc → int8 post-relu: y = clip(round(acc >> SHIFT), 0, 127).
+// must match quantize.py:arith_right_shift_round + relu_clip_int8 bit-exactly.
 
 `default_nettype none
 
@@ -30,7 +23,7 @@ module requantize #(
         end
     endgenerate
 
-    // ReLU + saturate to [0, 127].
+    // relu + saturate to [0, 127]
     assign q = (shifted <= 32'sd0)   ? 8'sd0   :
                (shifted >= 32'sd127) ? 8'sd127 :
                                        shifted[7:0];

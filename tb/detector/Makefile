@@ -17,6 +17,9 @@ VENV      := $(PROJ_ROOT)/.venv
 # Force cocotb to use the venv's Python so it finds the cocotb package.
 export PYTHON_BIN := $(VENV)/bin/python
 
+# Match Vivado's include path so `include "scales.vh"` resolves under iverilog.
+COMPILE_ARGS += -I$(PROJ_ROOT)/weights
+
 # Test selection
 TEST ?= requantize
 

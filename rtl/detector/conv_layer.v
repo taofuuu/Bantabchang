@@ -1,22 +1,5 @@
-// conv_layer: generic 2D convolution + bias + ReLU + requantize.
-//
-// One MAC per cycle (sequential). Bit-exact equivalent of:
-//
-//   for oc:                              # output channel
-//     for oy:                            # output spatial y
-//       for ox:                          # output spatial x
-//         acc = bias[oc]                 # int32
-//         for ic, ky, kx:                # accumulate
-//           acc += w[oc,ic,ky,kx] * in[ic, oy*S+ky, ox*S+kx]
-//         out[oc,oy,ox] = clip(round(max(0,acc) >> SHIFT), 0, 127)
-//
-// Address layout (matching scripts/export_weights.py and dump_golden.py):
-//   input  : [ic, iy, ix]      addr = ic*IH*IW + iy*IW + ix
-//   weight : [oc, ic, ky, kx]  addr = oc*IN_CH*KH*KW + ic*KH*KW + ky*KW + kx
-//   bias   : [oc]
-//   output : [oc, oy, ox]      addr = oc*OH*OW + oy*OW + ox
-//
-// Memory ports are fully synchronous (1-cycle read latency assumed).
+// generic 2D conv + bias + relu + requantize. one mac per cycle.
+// address layout: input [ic,iy,ix], weight [oc,ic,ky,kx], output [oc,oy,ox].
 
 `default_nettype none
 
@@ -54,13 +37,7 @@ module conv_layer #(
     output reg  signed [7:0]                    out_data
 );
 
-    // -------------------------------------------------------------------
-    // counters
-    //
-    // Use safe bit widths that give >=1 bit even when the parameter is 1
-    // (e.g., IN_CH=1 in conv1). Without the (>1) guard, $clog2(1)=0 forms
-    // an illegal `reg [-1:0]` in some simulators.
-    // -------------------------------------------------------------------
+    // counters — guard: $clog2(1)=0 makes reg [-1:0] which is illegal in some simulators
     localparam OC_BITS = (OUT_CH > 1) ? $clog2(OUT_CH) : 1;
     localparam OY_BITS = (OUT_H  > 1) ? $clog2(OUT_H ) : 1;
     localparam OX_BITS = (OUT_W  > 1) ? $clog2(OUT_W ) : 1;
@@ -84,16 +61,7 @@ module conv_layer #(
 
     wire kernel_last = ic_last & ky_last & kx_last;
 
-    // -------------------------------------------------------------------
-    // FSM
-    //   IDLE       : wait for start
-    //   READ_BIAS  : drive bias addr; bias appears next cycle
-    //   LOAD_BIAS  : capture bias into acc
-    //   ISSUE      : drive in/w addrs; data appears next cycle
-    //   MAC        : multiply-accumulate using just-arrived in/w; advance counters or finish
-    //   WB         : requantize acc, write output, advance to next (oc,oy,ox)
-    //   FIN        : pulse done
-    // -------------------------------------------------------------------
+    // FSM: IDLE → READ_BIAS → LOAD_BIAS → ISSUE → MAC → WB → FIN
     localparam [2:0] S_IDLE      = 3'd0;
     localparam [2:0] S_READ_BIAS = 3'd1;
     localparam [2:0] S_LOAD_BIAS = 3'd2;
@@ -106,18 +74,14 @@ module conv_layer #(
 
     reg signed [31:0] acc;
 
-    // 8x8 signed multiply -> 16-bit signed product. Declared explicitly so we
-    // can sign-extend cleanly (Verilog-2001 does not allow bit-select on an
-    // expression like (a*b)[15]).
+    // 8x8 signed product; declared explicitly for clean sign-extension
     wire signed [15:0] mac_prod = in_data * w_data;
 
     // Requantize unit (combinational)
     wire signed [7:0] q_out;
     requantize #(.SHIFT(REQUANT_SHIFT)) u_rq (.acc(acc), .q(q_out));
 
-    // -------------------------------------------------------------------
-    // Combinational next-state.
-    // -------------------------------------------------------------------
+    // next-state
     always @* begin
         next = state;
         case (state)
@@ -138,9 +102,7 @@ module conv_layer #(
         endcase
     end
 
-    // -------------------------------------------------------------------
-    // Sequential logic
-    // -------------------------------------------------------------------
+    // sequential
     always @(posedge clk) begin
         if (rst) begin
             state    <= S_IDLE;
@@ -160,17 +122,17 @@ module conv_layer #(
                     ic <= 0; ky <= 0; kx <= 0;
                 end
 
-                // bias appears on b_data this cycle (we drove b_addr in S_READ_BIAS)
+                // bias from previous cycle's read
                 S_LOAD_BIAS: begin
                     acc <= b_data;
                     ic  <= 0; ky <= 0; kx <= 0;
                 end
 
                 S_MAC: begin
-                    // mac_prod (signed 16) auto-sign-extends to signed 32 in this add.
+                    // sign-extend 16-bit product to 32
                     acc <= acc + {{16{mac_prod[15]}}, mac_prod};
 
-                    // advance kernel/channel counters for next issue
+                    // advance kernel counters
                     if (kx_last) begin
                         kx <= 0;
                         if (ky_last) begin
@@ -185,11 +147,11 @@ module conv_layer #(
                 end
 
                 S_WB: begin
-                    // write requantized output for current (oc, oy, ox)
+                    // write requantized output
                     out_we   <= 1'b1;
                     out_addr <= oc * (OUT_H * OUT_W) + oy * OUT_W + ox;
                     out_data <= q_out;
-                    // advance output position
+                    // advance position
                     if (ox_last) begin
                         ox <= 0;
                         if (oy_last) begin
@@ -208,15 +170,11 @@ module conv_layer #(
         end
     end
 
-    // -------------------------------------------------------------------
-    // Address drivers (combinational; data returns next cycle)
-    // -------------------------------------------------------------------
+    // address drivers
     always @* begin
-        // bias address always reflects current oc
         b_addr = oc;
 
-        // input/weight addresses correspond to the MAC the engine will perform
-        // on the cycle after the address is sampled.
+        // addresses for next mac
         in_addr = ic * (IN_H * IN_W)
                 + (oy * STRIDE + ky) * IN_W
                 + (ox * STRIDE + kx);

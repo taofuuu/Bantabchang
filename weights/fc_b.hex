@@ -1,4 +1,7 @@
-// fc bias, shape=(2,)
-// 2 int32 values, two's complement, one per line
+// fc bias, shape=(5,)
+// 5 int32 values, two's complement, one per line
+ffffffd2
+00000023
+00000048
 00000058
-ffffffb9
+00000065
