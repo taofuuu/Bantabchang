@@ -1,0 +1,9 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1778679188" />
+    <testcase name="test_config_done_asserts" classname="test_ov7670_config" file="/mnt/d/CU/Bantabchang/tb/camera/test_ov7670_config.py" lineno="12" time="0.6390900611877441" sim_time_ns="183150.0" ratio_time="286579.32758274645" />
+    <testcase name="test_sioc_toggles_during_config" classname="test_ov7670_config" file="/mnt/d/CU/Bantabchang/tb/camera/test_ov7670_config.py" lineno="30" time="0.6467952728271484" sim_time_ns="183150.0" ratio_time="283165.33483531745" />
+    <testcase name="test_sccb_busy_deasserts_at_done" classname="test_ov7670_config" file="/mnt/d/CU/Bantabchang/tb/camera/test_ov7670_config.py" lineno="54" time="0.5984392166137695" sim_time_ns="183150.0" ratio_time="306046.1194978877" />
+    <testcase name="test_config_done_stays_high" classname="test_ov7670_config" file="/mnt/d/CU/Bantabchang/tb/camera/test_ov7670_config.py" lineno="72" time="0.5879507064819336" sim_time_ns="183250.0" ratio_time="311675.7884287547" />
+  </testsuite>
+</testsuites>

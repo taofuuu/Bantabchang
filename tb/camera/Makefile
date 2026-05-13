@@ -1,10 +1,3 @@
-# cocotb tests for rtl/camera/
-# Usage:
-#   cd tb/camera && make                         # default: pixel_stream_cdc
-#   cd tb/camera && make TEST=pixel_stream_cdc
-#   cd tb/camera && make TEST=ov7670_capture
-#   cd tb/camera && make TEST=ov7670_config
-
 SIM           ?= icarus
 TOPLEVEL_LANG ?= verilog
 
@@ -35,4 +28,4 @@ ifeq ($(TEST),ov7670_config)
     MODULE          = test_ov7670_config
 endif
 
-include $(shell $(VENV)/bin/cocotb-config --makefiles)/Makefile.sim
+include $(shell $cocotb-config --makefiles)/Makefile.sim
