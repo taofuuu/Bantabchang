@@ -22,4 +22,4 @@ ifeq ($(TEST),image_filter)
     MODULE          = test_image_filter
 endif
 
-include $(shell $cocotb-config --makefiles)/Makefile.sim
+include $(shell cocotb-config --makefiles)/Makefile.sim

@@ -68,4 +68,4 @@ ifeq ($(TEST),detector_top)
     MODULE          = test_detector_top
 endif
 
-include $(shell $cocotb-config --makefiles)/Makefile.sim
+include $(shell cocotb-config --makefiles)/Makefile.sim

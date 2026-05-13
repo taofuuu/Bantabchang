@@ -28,4 +28,4 @@ ifeq ($(TEST),ov7670_config)
     MODULE          = test_ov7670_config
 endif
 
-include $(shell $cocotb-config --makefiles)/Makefile.sim
+include $(shell cocotb-config --makefiles)/Makefile.sim
