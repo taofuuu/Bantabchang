@@ -13,7 +13,7 @@ module wrap_weight_rom (
         .WIDTH(8),
         .DEPTH(72),
         .ADDR_W(7),
-        .MEM_FILE("/mnt/d/CU/HWSynProject/weights/conv1_w.hex")
+        .MEM_FILE("/mnt/d/CU/Bantabchang/weights/conv1_w.hex")
     ) u (
         .clk(clk),
         .addr(addr),

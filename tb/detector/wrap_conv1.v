@@ -1,6 +1,8 @@
 // Test wrapper for conv_layer parameterized as conv1.
-// conv1: IN_CH=1, OUT_CH=8, IN=24x24, K=3, STRIDE=2, REQUANT_SHIFT=10.
+// conv1: IN_CH=1, OUT_CH=8, IN=24x24, K=3, STRIDE=2. REQUANT_SHIFT comes
+// from weights/scales.vh so it always tracks the latest export_weights.py run.
 
+`include "scales.vh"
 `default_nettype none
 
 module wrap_conv1 (
@@ -35,14 +37,14 @@ module wrap_conv1 (
     wire signed [7:0]  w_data;
     weight_rom #(
         .WIDTH(8), .DEPTH(72), .ADDR_W(7),
-        .MEM_FILE("/mnt/d/CU/HWSynProject/weights/conv1_w.hex")
+        .MEM_FILE("/mnt/d/CU/Bantabchang/weights/conv1_w.hex")
     ) u_w_rom (.clk(clk), .addr(w_addr), .data(w_data));
 
     wire [2:0]         b_addr;
     wire signed [31:0] b_data;
     weight_rom #(
         .WIDTH(32), .DEPTH(8), .ADDR_W(3),
-        .MEM_FILE("/mnt/d/CU/HWSynProject/weights/conv1_b.hex")
+        .MEM_FILE("/mnt/d/CU/Bantabchang/weights/conv1_b.hex")
     ) u_b_rom (.clk(clk), .addr(b_addr), .data(b_data));
 
     // output act_buffer (968 entries)
@@ -59,7 +61,7 @@ module wrap_conv1 (
         .IN_CH(1), .OUT_CH(8),
         .IN_H(24), .IN_W(24),
         .K(3), .STRIDE(2),
-        .REQUANT_SHIFT(10)
+        .REQUANT_SHIFT(`CONV1_SHIFT)
     ) u_conv (
         .clk(clk), .rst(rst),
         .start(start), .done(done),
