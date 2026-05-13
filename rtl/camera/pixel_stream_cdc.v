@@ -9,6 +9,7 @@ module pixel_stream_cdc(
     input  wire        src_rst,
     input  wire        src_valid,
     input  wire        src_line_start,
+    input  wire        src_frame_start,
     input  wire [7:0]  src_pixel,
 
     // Destination domain: system clk
