@@ -269,9 +269,13 @@ module camera_vga_top(
     // Use basenames so $readmemh resolves through Vivado's project sources
     // (build.tcl adds rtl/../weights/*.hex as Memory Initialization Files).
     detector_top #(
-        // Confidence threshold on the raw int32 conf logit. 0 means "any
-        // patch with sigmoid(conf) > 0.5". Bump up if you see false detections.
-        .THRESHOLD(32'sd2800),
+        // Confidence threshold on the raw int32 conf logit. From the golden
+        // test set, true positives land in [1103, 4772] and true negatives in
+        // [-4519, -386], so there's a wide pos/neg gap. 500 puts us safely
+        // above every test negative while still accepting every test positive
+        // — important because real-camera frames produce lower logits than
+        // the cleaner LFW training images. Increase if false detections appear.
+        .THRESHOLD(32'sd500),
         // Sub-sample stride within each 24x24 patch. DILATE=3 means each
         // patch covers a 72x72 region of the 160x120 frame, matching the
         // scale the network is trained on.
@@ -331,10 +335,11 @@ module camera_vga_top(
 
     // Hold the last positive detection across a few empty scans. The CNN is
     // not 100% recall on every frame; without persistence the box blinks off
-    // for every missed scan even while the face is clearly there. At ~30 scans
-    // per second a hold of 5 keeps the box visible for ~170 ms after the last
-    // confirmed detection, which is short enough to not lag a moving face.
-    localparam [3:0] FACE_HOLD_FRAMES = 4'd5;
+    // for every missed scan even while the face is clearly there. At ~8 scans
+    // per second a hold of 8 keeps the box visible for ~1 s after the last
+    // confirmed detection — long enough to ride out a few weak frames, short
+    // enough that a real disappearance is still obvious.
+    localparam [3:0] FACE_HOLD_FRAMES = 4'd8;
     reg [3:0] face_hold_cnt;
 
     always @(posedge clk_25mhz) begin
