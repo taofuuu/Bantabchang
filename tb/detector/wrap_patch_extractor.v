@@ -19,6 +19,7 @@ module wrap_patch_extractor (
     input  wire        start,
     input  wire [7:0]  patch_x,
     input  wire [6:0]  patch_y,
+    input  wire [2:0]  dilate_in,
     output wire        pe_done,
 
     // act_buffer read port for the test
@@ -48,6 +49,7 @@ module wrap_patch_extractor (
         .start(start),
         .patch_x(patch_x),
         .patch_y(patch_y),
+        .dilate_in(dilate_in),
         .done(pe_done),
         .fb_r_addr(fb_r_addr),
         .fb_r_data(fb_r_data),

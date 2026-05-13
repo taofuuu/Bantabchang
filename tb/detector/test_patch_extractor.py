@@ -35,6 +35,7 @@ async def _reset(dut):
     dut.start.value = 0
     dut.patch_x.value = 0
     dut.patch_y.value = 0
+    dut.dilate_in.value = 1
     dut.ab_r_addr.value = 0
     for _ in range(2):
         await RisingEdge(dut.clk)
