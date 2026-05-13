@@ -37,14 +37,14 @@ module wrap_conv1 (
     wire signed [7:0]  w_data;
     weight_rom #(
         .WIDTH(8), .DEPTH(72), .ADDR_W(7),
-        .MEM_FILE("/mnt/d/CU/Bantabchang/weights/conv1_w.hex")
+        .MEM_FILE("../../weights/conv1_w.hex")
     ) u_w_rom (.clk(clk), .addr(w_addr), .data(w_data));
 
     wire [2:0]         b_addr;
     wire signed [31:0] b_data;
     weight_rom #(
         .WIDTH(32), .DEPTH(8), .ADDR_W(3),
-        .MEM_FILE("/mnt/d/CU/Bantabchang/weights/conv1_b.hex")
+        .MEM_FILE("../../weights/conv1_b.hex")
     ) u_b_rom (.clk(clk), .addr(b_addr), .data(b_data));
 
     // output act_buffer (968 entries)

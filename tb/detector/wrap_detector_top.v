@@ -23,14 +23,14 @@ module wrap_detector_top (
     detector_top #(
         .STRIDE(16),
         .THRESHOLD(32'sd1000),
-        .CONV1_W_FILE("/mnt/d/CU/Bantabchang/weights/conv1_w.hex"),
-        .CONV1_B_FILE("/mnt/d/CU/Bantabchang/weights/conv1_b.hex"),
-        .CONV2_W_FILE("/mnt/d/CU/Bantabchang/weights/conv2_w.hex"),
-        .CONV2_B_FILE("/mnt/d/CU/Bantabchang/weights/conv2_b.hex"),
-        .CONV3_W_FILE("/mnt/d/CU/Bantabchang/weights/conv3_w.hex"),
-        .CONV3_B_FILE("/mnt/d/CU/Bantabchang/weights/conv3_b.hex"),
-        .FC_W_FILE("/mnt/d/CU/Bantabchang/weights/fc_w.hex"),
-        .FC_B_FILE("/mnt/d/CU/Bantabchang/weights/fc_b.hex")
+        .CONV1_W_FILE("../../weights/conv1_w.hex"),
+        .CONV1_B_FILE("../../weights/conv1_b.hex"),
+        .CONV2_W_FILE("../../weights/conv2_w.hex"),
+        .CONV2_B_FILE("../../weights/conv2_b.hex"),
+        .CONV3_W_FILE("../../weights/conv3_w.hex"),
+        .CONV3_B_FILE("../../weights/conv3_b.hex"),
+        .FC_W_FILE("../../weights/fc_w.hex"),
+        .FC_B_FILE("../../weights/fc_b.hex")
     ) u (
         .clk(clk), .rst(rst),
         .pixel_valid(pixel_valid),

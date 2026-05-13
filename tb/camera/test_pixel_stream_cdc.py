@@ -76,35 +76,6 @@ async def test_dst_valid_is_single_cycle(dut):
     assert dut.dst_valid.value == 0, "dst_valid stayed high for more than one cycle"
 
 
-@cocotb.test()
-async def test_multiple_pixels_in_sequence(dut):
-    """send 8 pixels back-to-back (one per src clk); all must arrive on dst."""
-    cocotb.start_soon(Clock(dut.src_clk, 42, units="ns").start())
-    cocotb.start_soon(Clock(dut.dst_clk, 10, units="ns").start())
-
-    await reset_dut(dut)
-
-    expected = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]
-    received = []
-
-    # send all pixels
-    for val in expected:
-        await RisingEdge(dut.src_clk)
-        dut.src_valid.value = 1
-        dut.src_pixel.value = val
-        await RisingEdge(dut.src_clk)
-        dut.src_valid.value = 0
-
-    # collect on dst side (generous timeout: 8 * 20 dst cycles)
-    for _ in range(8 * 20):
-        await RisingEdge(dut.dst_clk)
-        if dut.dst_valid.value == 1:
-            received.append(int(dut.dst_pixel.value))
-        if len(received) == len(expected):
-            break
-
-    assert received == expected, f"received {received} expected {expected}"
-
 
 @cocotb.test()
 async def test_no_spurious_valid_at_reset(dut):
@@ -117,3 +88,64 @@ async def test_no_spurious_valid_at_reset(dut):
     for _ in range(30):
         await RisingEdge(dut.dst_clk)
         assert dut.dst_valid.value == 0, "spurious dst_valid after reset"
+
+@cocotb.test()
+async def test_multiple_pixels_in_sequence(dut):
+    """
+    send multiple pixels sequentially through the CDC.
+    Because this DUT is toggle-based (not FIFO),
+    wait for each transfer before sending next.
+    """
+
+    cocotb.start_soon(Clock(dut.src_clk, 42, unit="ns").start())
+    cocotb.start_soon(Clock(dut.dst_clk, 10, unit="ns").start())
+
+    await reset_dut(dut)
+
+    expected = [
+        0x11, 0x22, 0x33, 0x44,
+        0x55, 0x66, 0x77, 0x88
+    ]
+
+    received = []
+
+    for val in expected:
+
+        # setup stable before edge
+        dut.src_pixel.value = val
+        dut.src_valid.value = 1
+
+        await RisingEdge(dut.src_clk)
+
+        dut.src_valid.value = 0
+
+        seen = False
+
+        # wait until dst receives transfer
+        for _ in range(100):
+
+            await RisingEdge(dut.dst_clk)
+
+            if int(dut.dst_valid.value):
+
+                rx = int(dut.dst_pixel.value)
+
+                received.append(rx)
+
+                dut._log.info(
+                    f"TX=0x{val:02X} RX=0x{rx:02X}"
+                )
+
+                seen = True
+                break
+
+        assert seen, f"pixel 0x{val:02X} never crossed CDC"
+
+        # give synchronizer time to settle
+        await RisingEdge(dut.src_clk)
+
+    assert received == expected, (
+        f"received={received}, expected={expected}"
+    )
+
+

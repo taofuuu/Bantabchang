@@ -53,20 +53,27 @@ async def send_frame(dut, rows, pixel_fn):
 @cocotb.test()
 async def test_reset_clears_outputs(dut):
     """all outputs must be 0 while reset is asserted."""
-    cocotb.start_soon(Clock(dut.pclk, 42, units="ns").start())
+
+    cocotb.start_soon(Clock(dut.pclk, 42, unit="ns").start())
 
     dut.reset.value = 1
     dut.vsync.value = 0
     dut.href.value = 0
     dut.data_in.value = 0
 
+    # allow reset propagation
+    await RisingEdge(dut.pclk)
+
     for _ in range(10):
         await RisingEdge(dut.pclk)
-        assert dut.frame_we.value == 0,    "frame_we non-zero during reset"
-        assert dut.stream_valid.value == 0, "stream_valid non-zero during reset"
+
+        assert int(dut.frame_we.value) == 0, \
+            "frame_we non-zero during reset"
+
+        assert int(dut.stream_valid.value) == 0, \
+            "stream_valid non-zero during reset"
 
     dut.reset.value = 0
-
 
 @cocotb.test()
 async def test_frame_buffer_write_on_2x2_blocks(dut):
