@@ -16,4 +16,4 @@ ifeq ($(TEST),vga_controller)
     MODULE          = test_vga_controller
 endif
 
-include $(shell $cocotb-config --makefiles)/Makefile.sim
+include $(shell cocotb-config --makefiles)/Makefile.sim

@@ -47,8 +47,8 @@ project_1/
 .vjraaa/
 
 # ---------- Cocotb / iverilog ----------
-tb/sim_build/
-tb/results.xml
+tb/*/sim_build/
+tb/*/results.xml
 tb/*.vcd
 tb/*.fst
 
@@ -67,5 +67,3 @@ Thumbs.db
 .claude
 *.jpg
 *.png
-
-/WorkingProject
