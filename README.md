@@ -79,7 +79,7 @@ Each video frame is processed as follows:
                                                      │         │
                                                      │   toggle-sync CDC ──► VGA bounding-box overlay
 ```
-
+[Block Design Image](Block%20Design.png)
 ### Clock Domains
 
 | Domain | Frequency | Source | Used by |
@@ -270,3 +270,8 @@ Filters are applied to the display path only; the neural network always operates
 **Sequential MAC architecture:** Each `conv_layer` and `fc_layer` uses a single multiplier-accumulator running one multiply per clock cycle. This is resource-efficient on the Artix-7 but means each inference takes many thousands of cycles. Latency per patch: Conv1 ≈ 8×11×11×1×3×3 = 8712 cycles, Conv2 ≈ 16×5×5×8×3×3 = 28800 cycles, Conv3 ≈ 16×3×3×16×3×3 = 20736 cycles, FC ≈ 5×144 = 720 cycles.
 
 **Synthesis tip:** The `filter_frame_buffer` behavioral model infers a block RAM correctly with Vivado's default settings. For tighter timing you can replace it with a Vivado Block Memory Generator IP instance as described in the file's comments.
+
+## AI Usage Declaration
+
+- Uses **Claude Code** for generating testbenches, this [README.md](README.md), project structure, consulting and CNN model creation and implementation
+- Uses **Gemini** for debugging
